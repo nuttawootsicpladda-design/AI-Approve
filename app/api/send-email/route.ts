@@ -4,6 +4,10 @@ import { saveRecord } from '@/lib/db'
 import { POItem, SharePointFileInfo } from '@/lib/types'
 import { generateApprovalToken, getApprovalUrl } from '@/lib/approval'
 
+// Increase body size limit and timeout for large PO data
+export const maxDuration = 60 // 60 seconds timeout
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()

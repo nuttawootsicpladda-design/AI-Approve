@@ -293,6 +293,13 @@ export default function Home() {
         }),
       })
 
+      // Handle non-JSON responses (e.g., 413 Request Entity Too Large)
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        throw new Error(`Server error: ${response.status} - ${text.substring(0, 100)}`)
+      }
+
       const result = await response.json()
 
       if (!result.success) {
@@ -302,6 +309,7 @@ export default function Home() {
       setStep('sent')
       setSuccess(t.messages.emailSent)
     } catch (err: any) {
+      console.error('Send email error:', err)
       setError(err.message || t.messages.error)
     } finally {
       setIsSending(false)
