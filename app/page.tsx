@@ -255,23 +255,55 @@ export default function Home() {
       `
 
       // Prepare attachments (support both single and multiple files)
+      // Vercel has a 4.5MB limit for request body, so we skip attachments if too large
+      const MAX_PAYLOAD_SIZE = 3 * 1024 * 1024 // 3MB to be safe (base64 adds ~33% overhead)
       let attachments: { name: string; content: string }[] | undefined
+      let attachmentsTooLarge = false
+
       if (attachToEmail) {
+        let tempAttachments: { name: string; content: string }[] = []
+
         if (fileAttachments.length > 0) {
           // Multiple files from SharePoint
-          attachments = fileAttachments.map((att) => ({
+          tempAttachments = fileAttachments.map((att) => ({
             name: att.name,
             content: att.content,
           }))
         } else if (fileAttachment) {
           // Single file from local upload
-          attachments = [
+          tempAttachments = [
             {
               name: fileAttachment.name,
               content: fileAttachment.content,
             },
           ]
         }
+
+        // Calculate total attachment size
+        const totalSize = tempAttachments.reduce((sum, att) => sum + att.content.length, 0)
+
+        if (totalSize > MAX_PAYLOAD_SIZE) {
+          attachmentsTooLarge = true
+          console.warn(`Attachments too large (${(totalSize / 1024 / 1024).toFixed(2)}MB), skipping attachments`)
+        } else {
+          attachments = tempAttachments
+        }
+      }
+
+      // Build request body
+      const requestBody = {
+        to: emailTo,
+        subject: emailSubject,
+        htmlBody: attachmentsTooLarge
+          ? htmlBody + `<p style="color:#666;font-size:12px;margin-top:20px;">📎 ไฟล์แนบมีขนาดใหญ่เกินไป กรุณาดูไฟล์ใน SharePoint โดยตรง</p>`
+          : htmlBody,
+        items,
+        fileName,
+        attachments,
+        // Include SharePoint file info for moving files on approval
+        sharePointFiles: sharePointFiles.length > 0 ? sharePointFiles : undefined,
+        approvedFolderPath: sharePointFiles.length > 0 ? approvedFolderPath : undefined,
+        senderEmail: process.env.NEXT_PUBLIC_SENDER_EMAIL,
       }
 
       const response = await fetch('/api/send-email', {
@@ -279,18 +311,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          to: emailTo,
-          subject: emailSubject,
-          htmlBody,
-          items,
-          fileName,
-          attachments,
-          // Include SharePoint file info for moving files on approval
-          sharePointFiles: sharePointFiles.length > 0 ? sharePointFiles : undefined,
-          approvedFolderPath: sharePointFiles.length > 0 ? approvedFolderPath : undefined,
-          senderEmail: process.env.NEXT_PUBLIC_SENDER_EMAIL,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       // Handle non-JSON responses (e.g., 413 Request Entity Too Large)
