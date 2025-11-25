@@ -42,6 +42,7 @@ function ApproveContent() {
     actionParam === 'approve' || actionParam === 'reject' ? actionParam : null
   )
   const [resultAction, setResultAction] = useState<'approve' | 'reject' | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   // Fetch approval data
   useEffect(() => {
@@ -81,7 +82,7 @@ function ApproveContent() {
   // Handle approval/rejection
   const handleAction = async (action: 'approve' | 'reject') => {
     setSelectedAction(action)
-    setStatus('processing')
+    setIsProcessing(true)
 
     try {
       const response = await fetch('/api/approval', {
@@ -101,6 +102,7 @@ function ApproveContent() {
       if (!result.success) {
         setError(result.error)
         setStatus('error')
+        setIsProcessing(false)
         return
       }
 
@@ -109,6 +111,7 @@ function ApproveContent() {
     } catch (err) {
       setError('Failed to process approval')
       setStatus('error')
+      setIsProcessing(false)
     }
   }
 
@@ -315,10 +318,10 @@ function ApproveContent() {
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button
                   onClick={() => handleAction('approve')}
-                  disabled={status === 'processing'}
+                  disabled={isProcessing}
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white py-6 text-lg"
                 >
-                  {status === 'processing' && selectedAction === 'approve' ? (
+                  {isProcessing && selectedAction === 'approve' ? (
                     <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                   ) : (
                     <CheckCircle className="h-5 w-5 mr-2" />
@@ -327,11 +330,11 @@ function ApproveContent() {
                 </Button>
                 <Button
                   onClick={() => handleAction('reject')}
-                  disabled={status === 'processing'}
+                  disabled={isProcessing}
                   variant="destructive"
                   className="flex-1 py-6 text-lg"
                 >
-                  {status === 'processing' && selectedAction === 'reject' ? (
+                  {isProcessing && selectedAction === 'reject' ? (
                     <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                   ) : (
                     <XCircle className="h-5 w-5 mr-2" />

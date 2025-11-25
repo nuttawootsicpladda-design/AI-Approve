@@ -5,7 +5,11 @@
       "Bash(powershell:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit: PO Approval System\n\nFeatures:\n- Upload PO documents (PDF/Excel) or select from SharePoint\n- Extract PO data using GPT-4o AI\n- Send approval emails via Microsoft Graph API\n- Approve/Reject workflow with notification\n- Move approved files to designated SharePoint folder\n- History tracking with approval status\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
