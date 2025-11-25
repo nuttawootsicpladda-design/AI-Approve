@@ -1,33 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApprovalToken } from '@/lib/approval'
+import { getAllRecords, updateRecord } from '@/lib/db'
 import { moveMultipleSharePointFiles, sendEmail } from '@/lib/microsoft-graph'
-import { PORecord } from '@/lib/types'
-import fs from 'fs'
-import path from 'path'
-
-const DATA_FILE = path.join(process.cwd(), 'data', 'po-records.json')
-
-// Helper to read records
-function readRecords(): PORecord[] {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const data = fs.readFileSync(DATA_FILE, 'utf-8')
-      return JSON.parse(data)
-    }
-  } catch (error) {
-    console.error('Error reading records:', error)
-  }
-  return []
-}
-
-// Helper to write records
-function writeRecords(records: PORecord[]): void {
-  const dir = path.dirname(DATA_FILE)
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-  }
-  fs.writeFileSync(DATA_FILE, JSON.stringify(records, null, 2))
-}
 
 // GET: Get approval status
 export async function GET(request: NextRequest) {
@@ -50,7 +24,7 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const records = readRecords()
+  const records = await getAllRecords()
   const record = records.find((r) => r.id === recordId)
 
   if (!record) {
@@ -105,17 +79,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const records = readRecords()
-    const recordIndex = records.findIndex((r) => r.id === recordId)
+    const records = await getAllRecords()
+    const record = records.find((r) => r.id === recordId)
 
-    if (recordIndex === -1) {
+    if (!record) {
       return NextResponse.json(
         { success: false, error: 'Record not found' },
         { status: 404 }
       )
     }
-
-    const record = records[recordIndex]
 
     // Check if already processed
     if (record.approvalStatus && record.approvalStatus !== 'pending') {
@@ -127,11 +99,13 @@ export async function POST(request: NextRequest) {
 
     const now = new Date().toISOString()
 
-    // Update record
+    // Prepare updates
+    const updates: Partial<typeof record> = {}
+
     if (action === 'approve') {
-      record.approvalStatus = 'approved'
-      record.approvedAt = now
-      record.approvalComment = comment
+      updates.approvalStatus = 'approved'
+      updates.approvedAt = now
+      updates.approvalComment = comment
 
       // Move files to approved folder if SharePoint files exist
       if (record.sharePointFiles && record.sharePointFiles.length > 0 && record.approvedFolderPath) {
@@ -153,13 +127,13 @@ export async function POST(request: NextRequest) {
         }
       }
     } else {
-      record.approvalStatus = 'rejected'
-      record.rejectedAt = now
-      record.approvalComment = comment
+      updates.approvalStatus = 'rejected'
+      updates.rejectedAt = now
+      updates.approvalComment = comment
     }
 
-    records[recordIndex] = record
-    writeRecords(records)
+    // Update record in KV
+    await updateRecord(recordId!, updates)
 
     // Send notification email to the original sender
     try {
@@ -224,10 +198,11 @@ export async function POST(request: NextRequest) {
         message: action === 'approve' ? 'PO has been approved' : 'PO has been rejected',
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Approval error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: errorMessage },
       { status: 500 }
     )
   }
