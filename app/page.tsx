@@ -19,8 +19,10 @@ import {
   Upload,
   FolderOpen,
   Paperclip,
+  LogOut,
 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 
 type Step = 'upload' | 'preview' | 'sent'
@@ -33,6 +35,7 @@ interface FileAttachment {
 }
 
 export default function Home() {
+  const router = useRouter()
   const [language, setLanguage] = useState<Language>('en')
   const [step, setStep] = useState<Step>('upload')
   const [uploadMethod, setUploadMethod] = useState<UploadMethod>('local')
@@ -55,6 +58,7 @@ export default function Home() {
 
   // Email settings
   const [emailTo, setEmailTo] = useState('Example@icpladda.com')
+  const [emailCc, setEmailCc] = useState('')
   const [emailSubject, setEmailSubject] = useState(
     `${translations[language].email.subject} - ${format(new Date(), 'dd/MM/yyyy')}`
   )
@@ -195,8 +199,34 @@ export default function Home() {
     setError(null)
 
     try {
+      // Merge items with the same name (aggregate quantity and usd)
+      const mergedItemsMap = new Map<string, { name: string; quantity: number; cost: number; poNo: string; usd: number }>()
+
+      items.forEach((item) => {
+        const key = item.name.trim().toLowerCase()
+        if (mergedItemsMap.has(key)) {
+          const existing = mergedItemsMap.get(key)!
+          existing.quantity += Number(item.quantity)
+          existing.usd += Number(item.usd)
+          // Combine PO numbers if different
+          if (!existing.poNo.includes(item.poNo)) {
+            existing.poNo = existing.poNo + ', ' + item.poNo
+          }
+        } else {
+          mergedItemsMap.set(key, {
+            name: item.name,
+            quantity: Number(item.quantity),
+            cost: Number(item.cost),
+            poNo: item.poNo,
+            usd: Number(item.usd),
+          })
+        }
+      })
+
+      const mergedItems = Array.from(mergedItemsMap.values())
+
       // Generate HTML table
-      const tableRows = items
+      const tableRows = mergedItems
         .map(
           (item, index) => `
         <tr>
@@ -205,11 +235,11 @@ export default function Home() {
           <td style="border:1px solid #000;padding:8px;text-align:right;">${Number(
             item.quantity
           ).toLocaleString()}</td>
-          <td style="border:1px solid #000;padding:8px;text-align:right;">$${Number(
+          <td style="border:1px solid #000;padding:8px;text-align:right;">${Number(
             item.cost
           ).toFixed(2)}</td>
           <td style="border:1px solid #000;padding:8px;">${item.poNo}</td>
-          <td style="border:1px solid #000;padding:8px;text-align:right;">$${Number(
+          <td style="border:1px solid #000;padding:8px;text-align:right;">${Number(
             item.usd
           ).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
         </tr>
@@ -217,7 +247,7 @@ export default function Home() {
         )
         .join('')
 
-      const total = items.reduce((sum, item) => sum + Number(item.usd), 0)
+      const total = mergedItems.reduce((sum, item) => sum + Number(item.usd), 0)
 
       const htmlTable = `
         <table style="border-collapse:collapse;font-family:Arial;font-size:14px;width:100%;">
@@ -239,7 +269,7 @@ export default function Home() {
               <td colspan="5" style="border:1px solid #000;padding:8px;text-align:right;">${
                 t.table.total
               }</td>
-              <td style="border:1px solid #000;padding:8px;text-align:right;">$${total.toLocaleString(
+              <td style="border:1px solid #000;padding:8px;text-align:right;">${total.toLocaleString(
                 undefined,
                 { minimumFractionDigits: 2 }
               )}</td>
@@ -278,6 +308,7 @@ export default function Home() {
       // Build request body
       const requestBody = {
         to: emailTo,
+        cc: emailCc || undefined,
         subject: emailSubject,
         htmlBody,
         items,
@@ -332,6 +363,11 @@ export default function Home() {
     setSharePointFiles([])
   }
 
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -351,6 +387,9 @@ export default function Home() {
               </Button>
             </Link>
             <LanguageSwitcher currentLanguage={language} onLanguageChange={setLanguage} />
+            <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout">
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
@@ -466,12 +505,15 @@ export default function Home() {
 
             <EmailPreview
               to={emailTo}
+              cc={emailCc}
               subject={emailSubject}
               items={items}
               onToChange={setEmailTo}
+              onCcChange={setEmailCc}
               onSubjectChange={setEmailSubject}
               translations={{
                 recipient: t.email.recipient,
+                cc: 'CC',
                 subject_label: t.email.subject_label,
                 greeting: t.email.greeting,
                 body: t.email.body,

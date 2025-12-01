@@ -45,6 +45,18 @@ export async function sendEmail(request: EmailRequest): Promise<void> {
     ],
   }
 
+  // Add CC recipients if provided
+  if (request.cc) {
+    const ccEmails = request.cc.split(',').map(email => email.trim()).filter(email => email)
+    if (ccEmails.length > 0) {
+      message.ccRecipients = ccEmails.map(email => ({
+        emailAddress: {
+          address: email,
+        },
+      }))
+    }
+  }
+
   // Add attachments if provided
   if (request.attachments && request.attachments.length > 0) {
     message.attachments = request.attachments.map(att => ({

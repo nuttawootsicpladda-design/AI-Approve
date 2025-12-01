@@ -47,6 +47,7 @@ export interface ExtractResponse {
 
 export interface EmailRequest {
   to: string
+  cc?: string
   subject: string
   htmlBody: string
   attachments?: Array<{

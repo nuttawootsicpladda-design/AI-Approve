@@ -7,12 +7,15 @@ import { POItem } from '@/lib/types'
 
 interface EmailPreviewProps {
   to: string
+  cc?: string
   subject: string
   items: POItem[]
   onToChange: (value: string) => void
+  onCcChange?: (value: string) => void
   onSubjectChange: (value: string) => void
   translations: {
     recipient: string
+    cc?: string
     subject_label: string
     greeting: string
     body: string
@@ -30,9 +33,11 @@ interface EmailPreviewProps {
 
 export function EmailPreview({
   to,
+  cc,
   subject,
   items,
   onToChange,
+  onCcChange,
   onSubjectChange,
   translations,
 }: EmailPreviewProps) {
@@ -50,6 +55,14 @@ export function EmailPreview({
         <div>
           <label className="text-sm font-medium mb-1.5 block">{translations.recipient}</label>
           <Input value={to} onChange={(e) => onToChange(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm font-medium mb-1.5 block">{translations.cc || 'CC'}</label>
+          <Input
+            value={cc || ''}
+            onChange={(e) => onCcChange?.(e.target.value)}
+            placeholder="email1@example.com, email2@example.com"
+          />
         </div>
         <div>
           <label className="text-sm font-medium mb-1.5 block">

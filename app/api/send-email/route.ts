@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const {
       to,
+      cc,
       subject,
       htmlBody,
       items,
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
     // Send email via Microsoft Graph
     await sendEmail({
       to,
+      cc,
       subject,
       htmlBody: fullHtmlBody,
       attachments,
