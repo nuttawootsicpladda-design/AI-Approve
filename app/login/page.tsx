@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Loader2, Mail, Lock } from 'lucide-react'
+import Image from 'next/image'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -47,7 +48,10 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">PO Approval System</CardTitle>
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <Image src="/Logo.png" alt="ICP Ladda Logo" width={120} height={40} />
+            <CardTitle className="text-2xl font-bold">PO Approval System</CardTitle>
+          </div>
           <p className="text-gray-500 mt-2">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
         </CardHeader>
         <CardContent>
