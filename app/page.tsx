@@ -200,19 +200,16 @@ export default function Home() {
     setError(null)
 
     try {
-      // Merge items with the same name (aggregate quantity and usd)
+      // Merge items with the same name AND same PO number (aggregate quantity and usd)
       const mergedItemsMap = new Map<string, { name: string; quantity: number; cost: number; poNo: string; usd: number }>()
 
       items.forEach((item) => {
-        const key = item.name.trim().toLowerCase()
+        // Use both name and PO number as the key - only merge if both match
+        const key = `${item.name.trim().toLowerCase()}|${item.poNo.trim()}`
         if (mergedItemsMap.has(key)) {
           const existing = mergedItemsMap.get(key)!
           existing.quantity += Number(item.quantity)
           existing.usd += Number(item.usd)
-          // Combine PO numbers if different
-          if (!existing.poNo.includes(item.poNo)) {
-            existing.poNo = existing.poNo + ', ' + item.poNo
-          }
         } else {
           mergedItemsMap.set(key, {
             name: item.name,
