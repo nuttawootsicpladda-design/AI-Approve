@@ -77,23 +77,23 @@ export function EmailPreview({
             <div className="mt-4">
               <table className="w-full border-collapse text-xs">
                 <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border border-gray-300 p-2 text-left">
+                  <tr className="bg-green-600 text-white">
+                    <th className="border border-green-700 p-2 text-left">
                       {translations.table.no}
                     </th>
-                    <th className="border border-gray-300 p-2 text-left">
+                    <th className="border border-green-700 p-2 text-left">
                       {translations.table.name}
                     </th>
-                    <th className="border border-gray-300 p-2 text-right">
+                    <th className="border border-green-700 p-2 text-right">
                       {translations.table.quantity}
                     </th>
-                    <th className="border border-gray-300 p-2 text-right">
+                    <th className="border border-green-700 p-2 text-right">
                       {translations.table.cost}
                     </th>
-                    <th className="border border-gray-300 p-2 text-left">
+                    <th className="border border-green-700 p-2 text-left">
                       {translations.table.poNo}
                     </th>
-                    <th className="border border-gray-300 p-2 text-right">
+                    <th className="border border-green-700 p-2 text-right">
                       {translations.table.usd}
                     </th>
                   </tr>

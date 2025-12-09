@@ -253,13 +253,13 @@ export default function Home() {
       const htmlTable = `
         <table style="border-collapse:collapse;font-family:Arial;font-size:14px;width:100%;">
           <thead>
-            <tr style="background-color:#f3f4f6;">
-              <th style="border:1px solid #000;padding:8px;">${t.table.no}</th>
-              <th style="border:1px solid #000;padding:8px;">${t.table.name}</th>
-              <th style="border:1px solid #000;padding:8px;">${t.table.quantity}</th>
-              <th style="border:1px solid #000;padding:8px;">${t.table.cost}</th>
-              <th style="border:1px solid #000;padding:8px;">${t.table.poNo}</th>
-              <th style="border:1px solid #000;padding:8px;">${t.table.usd}</th>
+            <tr style="background-color:#16a34a;color:white;">
+              <th style="border:1px solid #15803d;padding:8px;">${t.table.no}</th>
+              <th style="border:1px solid #15803d;padding:8px;">${t.table.name}</th>
+              <th style="border:1px solid #15803d;padding:8px;">${t.table.quantity}</th>
+              <th style="border:1px solid #15803d;padding:8px;">${t.table.cost}</th>
+              <th style="border:1px solid #15803d;padding:8px;">${t.table.poNo}</th>
+              <th style="border:1px solid #15803d;padding:8px;">${t.table.usd}</th>
             </tr>
           </thead>
           <tbody>

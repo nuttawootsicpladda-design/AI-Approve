@@ -86,27 +86,27 @@ export function POTable({ items, onChange, editable = true, translations }: POTa
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-muted">
-                <th className="border border-border p-3 text-left font-semibold text-sm">
+              <tr className="bg-green-600 text-white">
+                <th className="border border-green-700 p-3 text-left font-semibold text-sm">
                   {translations.no}
                 </th>
-                <th className="border border-border p-3 text-left font-semibold text-sm">
+                <th className="border border-green-700 p-3 text-left font-semibold text-sm">
                   {translations.name}
                 </th>
-                <th className="border border-border p-3 text-right font-semibold text-sm">
+                <th className="border border-green-700 p-3 text-right font-semibold text-sm">
                   {translations.quantity}
                 </th>
-                <th className="border border-border p-3 text-right font-semibold text-sm">
+                <th className="border border-green-700 p-3 text-right font-semibold text-sm">
                   {translations.cost}
                 </th>
-                <th className="border border-border p-3 text-left font-semibold text-sm">
+                <th className="border border-green-700 p-3 text-left font-semibold text-sm">
                   {translations.poNo}
                 </th>
-                <th className="border border-border p-3 text-right font-semibold text-sm">
+                <th className="border border-green-700 p-3 text-right font-semibold text-sm">
                   {translations.usd}
                 </th>
                 {editable && (
-                  <th className="border border-border p-3 text-center font-semibold text-sm w-24">
+                  <th className="border border-green-700 p-3 text-center font-semibold text-sm w-24">
                     Actions
                   </th>
                 )}
