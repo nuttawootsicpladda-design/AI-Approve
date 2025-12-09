@@ -8,8 +8,8 @@ export async function GET() {
     // Calculate stats
     const totalPOs = records.length
 
-    // Calculate total amount
-    const totalAmount = records.reduce((sum, r) => sum + (r.total || 0), 0)
+    // Calculate total amount (ensure number type)
+    const totalAmount = records.reduce((sum, r) => sum + (Number(r.total) || 0), 0)
 
     // Monthly data for chart (last 6 months)
     const monthlyData: { month: string; sent: number; amount: number }[] = []
@@ -28,7 +28,7 @@ export async function GET() {
       monthlyData.push({
         month: monthName,
         sent: monthRecords.length,
-        amount: monthRecords.reduce((sum, r) => sum + (r.total || 0), 0),
+        amount: monthRecords.reduce((sum, r) => sum + (Number(r.total) || 0), 0),
       })
     }
 
@@ -38,7 +38,7 @@ export async function GET() {
       const existing = recipientMap.get(r.sentTo) || { count: 0, amount: 0 }
       recipientMap.set(r.sentTo, {
         count: existing.count + 1,
-        amount: existing.amount + (r.total || 0),
+        amount: existing.amount + (Number(r.total) || 0),
       })
     })
     const topRecipients = Array.from(recipientMap.entries())
@@ -53,7 +53,7 @@ export async function GET() {
         id: r.id,
         fileName: r.fileName,
         sentTo: r.sentTo,
-        total: r.total,
+        total: Number(r.total) || 0,
         sentAt: r.sentAt,
       }))
 
@@ -65,7 +65,7 @@ export async function GET() {
              recordDate.getMonth() === thisMonth.getMonth()
     })
     const thisMonthCount = thisMonthRecords.length
-    const thisMonthAmount = thisMonthRecords.reduce((sum, r) => sum + (r.total || 0), 0)
+    const thisMonthAmount = thisMonthRecords.reduce((sum, r) => sum + (Number(r.total) || 0), 0)
 
     // Last month for comparison
     const lastMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth() - 1, 1)
@@ -75,7 +75,7 @@ export async function GET() {
              recordDate.getMonth() === lastMonth.getMonth()
     })
     const lastMonthCount = lastMonthRecords.length
-    const lastMonthAmount = lastMonthRecords.reduce((sum, r) => sum + (r.total || 0), 0)
+    const lastMonthAmount = lastMonthRecords.reduce((sum, r) => sum + (Number(r.total) || 0), 0)
 
     // Calculate growth
     const countGrowth = lastMonthCount > 0
