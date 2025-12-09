@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
     }, 0)
 
     // Save to history first to get record ID for approval token
+    console.log('Saving record to database...', { fileName, to, cc, total })
     const record = await saveRecord({
       fileName: fileName || 'Unknown',
       items,
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
       sharePointFiles: sharePointFiles as SharePointFileInfo[] | undefined,
       approvedFolderPath,
     })
+    console.log('Record saved successfully:', record.id)
 
     // Send email via Microsoft Graph (no approval buttons - user will Reply All manually)
     await sendEmail({

@@ -65,6 +65,7 @@ export async function saveRecord(record: Omit<PORecord, 'id'>): Promise<PORecord
 
   if (error) {
     console.error('Error saving record to Supabase:', error)
+    console.error('Error details:', JSON.stringify(error, null, 2))
     throw new Error(`Failed to save record: ${error.message}`)
   }
 
