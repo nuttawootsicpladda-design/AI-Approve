@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
     // Update record in KV
     await updateRecord(recordId!, updates)
 
-    // Send notification email to the original sender
+    // Send notification email to everyone (Reply All: sender + recipient + CC)
     try {
       const statusText = action === 'approve' ? 'อนุมัติ (Approved)' : 'ไม่อนุมัติ (Rejected)'
       const statusColor = action === 'approve' ? '#22c55e' : '#ef4444'
@@ -146,16 +146,26 @@ export async function POST(request: NextRequest) {
             <h1 style="margin: 0; font-size: 24px;">PO ${statusText}</h1>
           </div>
           <div style="background-color: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
-            <p style="margin: 0 0 16px;">คำขออนุมัติ PO ของคุณได้รับการตอบกลับแล้ว</p>
+            <p style="margin: 0 0 16px;">คำขออนุมัติ PO ได้รับการตอบกลับแล้ว</p>
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
               <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">ไฟล์:</td>
                 <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.fileName}</td>
               </tr>
               <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">ผู้ส่ง:</td>
+                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.sentFrom}</td>
+              </tr>
+              <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">ส่งถึง:</td>
                 <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.sentTo}</td>
               </tr>
+              ${record.sentCc ? `
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">CC:</td>
+                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.sentCc}</td>
+              </tr>
+              ` : ''}
               <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">สถานะ:</td>
                 <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; color: ${statusColor}; font-weight: bold;">${statusText}</td>
@@ -180,9 +190,16 @@ export async function POST(request: NextRequest) {
         </div>
       `
 
+      // Build Reply All recipients: sender gets 'to', original recipient + CC go to 'cc'
+      const replyAllCc = [record.sentTo]
+      if (record.sentCc) {
+        replyAllCc.push(record.sentCc)
+      }
+
       await sendEmail({
         to: record.sentFrom,
-        subject: `PO ${statusText} - ${record.fileName}`,
+        cc: replyAllCc.join(', '),
+        subject: `Re: PO ${statusText} - ${record.fileName}`,
         htmlBody: notificationHtml,
       })
     } catch (error) {

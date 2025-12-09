@@ -22,7 +22,7 @@ export const translations: Translations = {
       quantity: 'Quantity',
       cost: 'Cost',
       poNo: 'P/O No.',
-      usd: 'USD',
+      usd: 'Total',
       total: 'Total',
     },
     email: {
@@ -82,7 +82,7 @@ export const translations: Translations = {
       quantity: 'จำนวน',
       cost: 'ราคา',
       poNo: 'เลขที่ PO',
-      usd: 'ราคา (USD)',
+      usd: 'รวม',
       total: 'รวม',
     },
     email: {

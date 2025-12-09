@@ -21,6 +21,7 @@ export async function getAllRecords(): Promise<PORecord[]> {
       items: record.items,
       total: record.total,
       sentTo: record.sent_to,
+      sentCc: record.sent_cc,
       sentFrom: record.sent_from,
       sentAt: record.sent_at,
       status: record.status,
@@ -47,6 +48,7 @@ export async function saveRecord(record: Omit<PORecord, 'id'>): Promise<PORecord
       items: record.items,
       total: record.total,
       sent_to: record.sentTo,
+      sent_cc: record.sentCc,
       sent_from: record.sentFrom,
       sent_at: record.sentAt,
       status: record.status,
@@ -72,6 +74,7 @@ export async function saveRecord(record: Omit<PORecord, 'id'>): Promise<PORecord
     items: data.items,
     total: data.total,
     sentTo: data.sent_to,
+    sentCc: data.sent_cc,
     sentFrom: data.sent_from,
     sentAt: data.sent_at,
     status: data.status,
@@ -103,6 +106,7 @@ export async function getRecordById(id: string): Promise<PORecord | null> {
     items: data.items,
     total: data.total,
     sentTo: data.sent_to,
+    sentCc: data.sent_cc,
     sentFrom: data.sent_from,
     sentAt: data.sent_at,
     status: data.status,
@@ -140,6 +144,7 @@ export async function updateRecord(id: string, updates: Partial<PORecord>): Prom
   if (updates.items !== undefined) supabaseUpdates.items = updates.items
   if (updates.total !== undefined) supabaseUpdates.total = updates.total
   if (updates.sentTo !== undefined) supabaseUpdates.sent_to = updates.sentTo
+  if (updates.sentCc !== undefined) supabaseUpdates.sent_cc = updates.sentCc
   if (updates.sentFrom !== undefined) supabaseUpdates.sent_from = updates.sentFrom
   if (updates.sentAt !== undefined) supabaseUpdates.sent_at = updates.sentAt
   if (updates.status !== undefined) supabaseUpdates.status = updates.status
@@ -169,6 +174,7 @@ export async function updateRecord(id: string, updates: Partial<PORecord>): Prom
     items: data.items,
     total: data.total,
     sentTo: data.sent_to,
+    sentCc: data.sent_cc,
     sentFrom: data.sent_from,
     sentAt: data.sent_at,
     status: data.status,

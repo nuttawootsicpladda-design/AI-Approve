@@ -26,6 +26,7 @@ export interface PORecord {
   items: POItem[]
   total: number
   sentTo: string
+  sentCc?: string // CC recipients
   sentFrom: string // Email ผู้ส่ง
   sentAt: string
   status: 'sent' | 'draft' | 'failed'

@@ -11,7 +11,12 @@
       "Bash(git push:*)",
       "Bash(git commit:*)",
       "Bash(npm install:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(del nul)",
+      "Bash(del netlify.toml)",
+      "Bash(copy \"Logo.png\" \"public\\Logo.png\")"
     ],
     "deny": [],
     "ask": []

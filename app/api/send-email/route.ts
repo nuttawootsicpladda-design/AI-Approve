@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sendEmail } from '@/lib/microsoft-graph'
 import { saveRecord } from '@/lib/db'
 import { POItem, SharePointFileInfo } from '@/lib/types'
-import { generateApprovalToken, getApprovalUrl } from '@/lib/approval'
 
 // Increase body size limit and timeout for large PO data
 export const maxDuration = 60 // 60 seconds timeout
@@ -43,6 +42,7 @@ export async function POST(request: NextRequest) {
       items,
       total,
       sentTo: to,
+      sentCc: cc || undefined,
       sentFrom: senderEmail || process.env.EMAIL_SENDER || '',
       sentAt: new Date().toISOString(),
       status: 'sent',
@@ -51,48 +51,14 @@ export async function POST(request: NextRequest) {
       approvedFolderPath,
     })
 
-    // Generate approval token
-    const approvalToken = generateApprovalToken(record.id)
-    const approveUrl = getApprovalUrl(approvalToken, 'approve')
-    const rejectUrl = getApprovalUrl(approvalToken, 'reject')
-
-    // Add approval buttons to email
-    const approvalButtonsHtml = `
-      <div style="margin-top: 30px; padding: 20px; background-color: #f9fafb; border-radius: 8px; text-align: center;">
-        <p style="margin: 0 0 16px; font-size: 16px; font-weight: bold;">กรุณาอนุมัติหรือปฏิเสธคำขอนี้</p>
-        <div style="display: inline-block;">
-          <a href="${approveUrl}"
-             style="display: inline-block; padding: 12px 32px; margin: 8px; background-color: #22c55e; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
-            ✓ อนุมัติ (Approve)
-          </a>
-          <a href="${rejectUrl}"
-             style="display: inline-block; padding: 12px 32px; margin: 8px; background-color: #ef4444; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
-            ✗ ไม่อนุมัติ (Reject)
-          </a>
-        </div>
-        <p style="margin: 16px 0 0; font-size: 12px; color: #6b7280;">
-          หรือคลิกที่ลิงก์ด้านล่าง:<br>
-          อนุมัติ: <a href="${approveUrl}">${approveUrl}</a><br>
-          ไม่อนุมัติ: <a href="${rejectUrl}">${rejectUrl}</a>
-        </p>
-      </div>
-    `
-
-    // Combine original HTML with approval buttons
-    const fullHtmlBody = htmlBody + approvalButtonsHtml
-
-    // Send email via Microsoft Graph
+    // Send email via Microsoft Graph (no approval buttons - user will Reply All manually)
     await sendEmail({
       to,
       cc,
       subject,
-      htmlBody: fullHtmlBody,
+      htmlBody,
       attachments,
     })
-
-    // Update record with approval token
-    const { updateRecord } = await import('@/lib/db')
-    await updateRecord(record.id, { approvalToken })
 
     return NextResponse.json({
       success: true,

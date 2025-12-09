@@ -20,6 +20,7 @@ import {
   FolderOpen,
   Paperclip,
   LogOut,
+  BarChart3,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -343,6 +344,24 @@ export default function Home() {
 
       setStep('sent')
       setSuccess(t.messages.emailSent)
+
+      // Send Line Notify if token is saved
+      const lineToken = localStorage.getItem('line-notify-token')
+      if (lineToken) {
+        try {
+          const total = mergedItems.reduce((sum, item) => sum + Number(item.usd), 0)
+          await fetch('/api/line-notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              token: lineToken,
+              message: `\n📧 ส่ง PO สำเร็จ!\n📁 ไฟล์: ${fileName}\n👤 ถึง: ${emailTo}\n💰 ยอดรวม: $${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+            }),
+          })
+        } catch (lineErr) {
+          console.error('Line Notify error:', lineErr)
+        }
+      }
     } catch (err: any) {
       console.error('Send email error:', err)
       setError(err.message || t.messages.error)
@@ -380,6 +399,12 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-4">
+            <Link href="/dashboard">
+              <Button variant="outline">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Dashboard
+              </Button>
+            </Link>
             <Link href="/history">
               <Button variant="outline">
                 <History className="h-4 w-4 mr-2" />
@@ -423,14 +448,6 @@ export default function Home() {
               <CardContent>
                 <div className="flex gap-4">
                   <Button
-                    variant={uploadMethod === 'local' ? 'default' : 'outline'}
-                    onClick={() => setUploadMethod('local')}
-                    className="flex-1"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    {t.localUpload}
-                  </Button>
-                  <Button
                     variant={uploadMethod === 'sharepoint' ? 'default' : 'outline'}
                     onClick={() => setUploadMethod('sharepoint')}
                     className="flex-1"
@@ -438,9 +455,26 @@ export default function Home() {
                     <FolderOpen className="h-4 w-4 mr-2" />
                     {t.sharePointUpload}
                   </Button>
+                  <Button
+                    variant={uploadMethod === 'local' ? 'default' : 'outline'}
+                    onClick={() => setUploadMethod('local')}
+                    className="flex-1"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    {t.localUpload}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
+
+            {/* SharePoint Browser */}
+            {uploadMethod === 'sharepoint' && (
+              <SharePointBrowser
+                onFileSelect={handleSharePointFileSelect}
+                isProcessing={isProcessing}
+                translations={t.sharepoint}
+              />
+            )}
 
             {/* Local Upload */}
             {uploadMethod === 'local' && (
@@ -460,15 +494,6 @@ export default function Home() {
                   />
                 </CardContent>
               </Card>
-            )}
-
-            {/* SharePoint Browser */}
-            {uploadMethod === 'sharepoint' && (
-              <SharePointBrowser
-                onFileSelect={handleSharePointFileSelect}
-                isProcessing={isProcessing}
-                translations={t.sharepoint}
-              />
             )}
           </div>
         )}

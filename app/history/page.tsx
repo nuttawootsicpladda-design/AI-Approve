@@ -251,7 +251,7 @@ export default function HistoryPage() {
                                 <th className="border border-border p-2 text-right">Quantity</th>
                                 <th className="border border-border p-2 text-right">Cost</th>
                                 <th className="border border-border p-2 text-left">P/O No.</th>
-                                <th className="border border-border p-2 text-right">USD</th>
+                                <th className="border border-border p-2 text-right">Total</th>
                               </tr>
                             </thead>
                             <tbody>

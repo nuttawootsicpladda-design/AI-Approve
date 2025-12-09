@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   Folder,
   FileText,
@@ -51,6 +51,8 @@ interface SharePointBrowserProps {
   }
 }
 
+const SHAREPOINT_URL_KEY = 'po-approval-sharepoint-url'
+
 export function SharePointBrowser({
   onFileSelect,
   isProcessing = false,
@@ -58,6 +60,14 @@ export function SharePointBrowser({
 }: SharePointBrowserProps) {
   const [siteUrl, setSiteUrl] = useState('')
   const [driveId, setDriveId] = useState<string | null>(null)
+
+  // Load saved SharePoint URL from localStorage on mount
+  useEffect(() => {
+    const savedUrl = localStorage.getItem(SHAREPOINT_URL_KEY)
+    if (savedUrl) {
+      setSiteUrl(savedUrl)
+    }
+  }, [])
   const [isConnecting, setIsConnecting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,6 +112,9 @@ export function SharePointBrowser({
       }
 
       setDriveId(result.data.driveId)
+
+      // Save URL to localStorage for next time
+      localStorage.setItem(SHAREPOINT_URL_KEY, siteUrl)
 
       // If URL contained a folder path, navigate to it
       if (result.data.initialFolderPath) {

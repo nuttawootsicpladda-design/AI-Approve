@@ -257,7 +257,7 @@ function ApproveContent() {
                       <th className="border p-2 text-right">จำนวน</th>
                       <th className="border p-2 text-right">ราคา</th>
                       <th className="border p-2 text-left">เลขที่ PO</th>
-                      <th className="border p-2 text-right">USD</th>
+                      <th className="border p-2 text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
