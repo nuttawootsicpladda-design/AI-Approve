@@ -5,7 +5,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { token, message } = body
 
+    console.log('Line Notify request received:', { hasToken: !!token, messageLength: message?.length })
+
     if (!token || !message) {
+      console.error('Line Notify: Missing token or message')
       return NextResponse.json(
         { success: false, error: 'Token and message are required' },
         { status: 400 }
@@ -22,13 +25,23 @@ export async function POST(request: NextRequest) {
       body: new URLSearchParams({ message }),
     })
 
-    const result = await response.json()
+    const resultText = await response.text()
+    console.log('Line Notify API response:', { status: response.status, body: resultText })
+
+    let result
+    try {
+      result = JSON.parse(resultText)
+    } catch {
+      result = { message: resultText }
+    }
 
     if (response.ok) {
       return NextResponse.json({ success: true })
     } else {
+      const errorMsg = result.message || `Line API error: ${response.status}`
+      console.error('Line Notify failed:', errorMsg)
       return NextResponse.json(
-        { success: false, error: result.message || 'Failed to send Line notification' },
+        { success: false, error: errorMsg },
         { status: response.status }
       )
     }
