@@ -4,10 +4,12 @@ import { PORecord } from './types'
 // Read all records
 export async function getAllRecords(): Promise<PORecord[]> {
   try {
-    const { data, error } = await supabase
+    const { data, error, count } = await supabase
       .from('po_records')
-      .select('*')
+      .select('*', { count: 'exact' })
       .order('sent_at', { ascending: false })
+
+    console.log('getAllRecords: fetched', data?.length, 'records, total count:', count)
 
     if (error) {
       console.error('Error reading records from Supabase:', error)

@@ -4,6 +4,7 @@ import { getAllRecords } from '@/lib/db'
 export async function GET() {
   try {
     const records = await getAllRecords()
+    console.log('Dashboard: Total records fetched:', records.length)
 
     // Calculate stats
     const totalPOs = records.length
