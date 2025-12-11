@@ -11,7 +11,17 @@ export function middleware(request: NextRequest) {
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
 
   // Allow public routes and static files
-  if (isPublicRoute || pathname.startsWith('/_next') || pathname.startsWith('/favicon')) {
+  if (
+    isPublicRoute ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon') ||
+    pathname.endsWith('.jpg') ||
+    pathname.endsWith('.jpeg') ||
+    pathname.endsWith('.png') ||
+    pathname.endsWith('.gif') ||
+    pathname.endsWith('.svg') ||
+    pathname.endsWith('.ico')
+  ) {
     return NextResponse.next()
   }
 
