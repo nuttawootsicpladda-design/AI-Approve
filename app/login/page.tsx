@@ -47,8 +47,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <img src="/logo-icp.jpg" alt="ICP Ladda Logo" className="h-10 w-auto" />
+          <div className="flex flex-col items-center gap-3 mb-2">
+            <img src="/logo3.png" alt="ICP Ladda Logo" style={{ width: '57px', height: '57px' }} />
             <CardTitle className="text-2xl font-bold">PO Approval System</CardTitle>
           </div>
           <p className="text-gray-500 mt-2">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
