@@ -58,7 +58,7 @@ export default function Home() {
   const [approvedFolderPath, setApprovedFolderPath] = useState('Approved')
 
   // Email settings
-  const [emailTo, setEmailTo] = useState('Example@icpladda.com')
+  const [emailTo, setEmailTo] = useState('pitchaya.n@icpladda.com')
   const [emailCc, setEmailCc] = useState('')
   const [emailSubject, setEmailSubject] = useState(
     `${translations[language].email.subject} - ${format(new Date(), 'dd/MM/yyyy')}`
@@ -315,7 +315,7 @@ export default function Home() {
         // Include SharePoint file info for moving files on approval
         sharePointFiles: sharePointFiles.length > 0 ? sharePointFiles : undefined,
         approvedFolderPath: sharePointFiles.length > 0 ? approvedFolderPath : undefined,
-        senderEmail: process.env.NEXT_PUBLIC_SENDER_EMAIL,
+        senderEmail: 'procurement.noreply@icpladda.com',
       }
 
       const response = await fetch('/api/send-email', {
