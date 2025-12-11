@@ -10,6 +10,10 @@ const nextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+  // Disable image optimization to serve static files directly
+  images: {
+    unoptimized: true,
+  },
 }
 
 module.exports = nextConfig
