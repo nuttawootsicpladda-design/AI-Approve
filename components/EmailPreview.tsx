@@ -14,6 +14,7 @@ const EMAIL_LIST = [
   'kanyapak.d@icpladda.com',
   'muksuda.w@icpladda.com',
   'jatuporn.n@icpladda.com',
+  'kanin.s@icpladda.com',
 ]
 
 interface EmailPreviewProps {

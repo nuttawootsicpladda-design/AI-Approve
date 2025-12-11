@@ -17,7 +17,9 @@
       "Bash(del nul)",
       "Bash(del netlify.toml)",
       "Bash(copy \"Logo.png\" \"public\\Logo.png\")",
-      "Bash(if not exist public mkdir public)"
+      "Bash(if not exist public mkdir public)",
+      "Bash(dir:*)",
+      "Bash(copy:*)"
     ],
     "deny": [],
     "ask": []
