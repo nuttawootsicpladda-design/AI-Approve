@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sendEmail } from '@/lib/microsoft-graph'
+import { sendEmail, moveMultipleSharePointFiles } from '@/lib/microsoft-graph'
 import { saveRecord } from '@/lib/db'
 import { POItem, SharePointFileInfo } from '@/lib/types'
 
@@ -62,9 +62,27 @@ export async function POST(request: NextRequest) {
       attachments,
     })
 
+    // Move SharePoint files to destination folder immediately after email sent
+    let movedFilesResult = null
+    if (sharePointFiles && sharePointFiles.length > 0 && approvedFolderPath) {
+      console.log('Moving SharePoint files to:', approvedFolderPath)
+      try {
+        const filesToMove = sharePointFiles.map((file: SharePointFileInfo) => ({
+          driveId: file.driveId,
+          fileId: file.id,
+        }))
+        movedFilesResult = await moveMultipleSharePointFiles(filesToMove, approvedFolderPath)
+        console.log('Files moved successfully:', movedFilesResult)
+      } catch (moveError: any) {
+        console.error('Error moving files:', moveError)
+        // Don't fail the request if file move fails - email was already sent
+      }
+    }
+
     return NextResponse.json({
       success: true,
       recordId: record.id,
+      filesMoved: movedFilesResult,
     })
   } catch (error: any) {
     console.error('Send email API error:', error)

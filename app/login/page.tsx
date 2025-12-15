@@ -44,11 +44,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{
+        backgroundImage: 'url(/bglogin.jpg)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }}
+    >
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex flex-col items-center gap-3 mb-2">
-            <img src="/logo3.png" alt="ICP Ladda Logo" style={{ width: '57px', height: '57px' }} />
+            <img src="/logo3.png" alt="ICP Ladda Logo" style={{ width: '150px', height: '150px' }} />
             <CardTitle className="text-2xl font-bold">PO Approval System</CardTitle>
           </div>
           <p className="text-gray-500 mt-2">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>

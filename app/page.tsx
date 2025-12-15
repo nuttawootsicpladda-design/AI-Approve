@@ -575,7 +575,7 @@ export default function Home() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium flex items-center gap-2">
                       <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                      โฟลเดอร์ปลายทางเมื่ออนุมัติ (Approved Folder Path)
+                      โฟลเดอร์ปลายทาง (Destination Folder)
                     </label>
                     <input
                       type="text"
@@ -585,7 +585,7 @@ export default function Home() {
                       className="w-full px-3 py-2 border rounded-md text-sm"
                     />
                     <p className="text-xs text-muted-foreground">
-                      เมื่อผู้รับ Email กด Approve ไฟล์จะถูกย้ายไปยังโฟลเดอร์นี้
+                      หลังกด Send Email ไฟล์จะถูกย้ายไปยังโฟลเดอร์นี้โดยอัตโนมัติ
                     </p>
                   </div>
                 </CardContent>
