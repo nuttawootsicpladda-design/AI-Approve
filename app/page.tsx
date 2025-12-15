@@ -12,7 +12,6 @@ import { POItem, Language, SharePointFileInfo } from '@/lib/types'
 import { translations } from '@/lib/translations'
 import {
   Send,
-  History,
   CheckCircle,
   XCircle,
   Loader2,
@@ -20,9 +19,8 @@ import {
   FolderOpen,
   Paperclip,
   LogOut,
-  BarChart3,
 } from 'lucide-react'
-import Link from 'next/link'
+// import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 
@@ -396,7 +394,8 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <Link href="/dashboard">
+            {/* Dashboard and History buttons - Hidden */}
+            {/* <Link href="/dashboard">
               <Button variant="outline">
                 <BarChart3 className="h-4 w-4 mr-2" />
                 Dashboard
@@ -407,7 +406,7 @@ export default function Home() {
                 <History className="h-4 w-4 mr-2" />
                 {t.viewHistory}
               </Button>
-            </Link>
+            </Link> */}
             <LanguageSwitcher currentLanguage={language} onLanguageChange={setLanguage} />
             <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout">
               <LogOut className="h-4 w-4" />
@@ -568,8 +567,8 @@ export default function Home() {
               </Card>
             )}
 
-            {/* Approved Folder Path (for SharePoint files) */}
-            {sharePointFiles.length > 0 && (
+            {/* Approved Folder Path (for SharePoint files) - Hidden */}
+            {/* {sharePointFiles.length > 0 && (
               <Card>
                 <CardContent className="p-4">
                   <div className="space-y-2">
@@ -590,7 +589,7 @@ export default function Home() {
                   </div>
                 </CardContent>
               </Card>
-            )}
+            )} */}
 
             <div className="flex gap-4">
               <Button onClick={handleReset} variant="outline" className="flex-1">
@@ -638,12 +637,12 @@ export default function Home() {
               </p>
               <div className="flex gap-4 justify-center">
                 <Button onClick={handleReset}>Process Another PO</Button>
-                <Link href="/history">
+                {/* <Link href="/history">
                   <Button variant="outline">
                     <History className="h-4 w-4 mr-2" />
                     View History
                   </Button>
-                </Link>
+                </Link> */}
               </div>
             </CardContent>
           </Card>
