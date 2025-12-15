@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       try {
         const filesToMove = sharePointFiles.map((file: SharePointFileInfo) => ({
           driveId: file.driveId,
-          fileId: file.id,
+          fileId: file.fileId,
         }))
         movedFilesResult = await moveMultipleSharePointFiles(filesToMove, approvedFolderPath)
         console.log('Files moved successfully:', movedFilesResult)
