@@ -59,6 +59,24 @@ export async function GET() {
         sentAt: r.sentAt,
       }))
 
+    // Status tracking - all POs with approval status
+    const statusTracking = records
+      .slice(0, 20)
+      .map(r => ({
+        id: r.id,
+        fileName: r.fileName,
+        sentTo: r.sentTo,
+        createdBy: r.createdBy || r.sentFrom || '-',
+        total: Number(r.total) || 0,
+        sentAt: r.sentAt,
+        approvalStatus: r.approvalStatus || 'pending',
+        currentApprovalLevel: r.currentApprovalLevel || 1,
+        maxApprovalLevel: r.maxApprovalLevel || 1,
+        approvedAt: r.approvedAt || null,
+        rejectedAt: r.rejectedAt || null,
+        approvalComment: r.approvalComment || null,
+      }))
+
     // This month stats
     const thisMonth = new Date()
     const thisMonthRecords = records.filter(r => {
@@ -102,6 +120,7 @@ export async function GET() {
         monthlyData,
         topRecipients,
         recentActivity,
+        statusTracking,
       },
     })
   } catch (error: any) {

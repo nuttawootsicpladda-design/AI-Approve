@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPendingRecordsForReminder, updateRecord } from '@/lib/db'
+import { getPendingRecordsForReminder, updateRecord, getApprovalStepsForPO } from '@/lib/db'
 import { PORecord } from '@/lib/types'
 import { sendEmail } from '@/lib/microsoft-graph'
 import { generateApprovalToken, getApprovalUrl } from '@/lib/approval'
+import {
+  wrapEmailLayout,
+  emailHeader,
+  emailCurrency,
+  miniApprovalButtons,
+  levelBadge,
+  pendingBadge,
+  ctaButton,
+  EMAIL_COLORS,
+} from '@/lib/email-template'
 
 const CRON_SECRET = process.env.CRON_SECRET
 
@@ -26,33 +36,43 @@ export async function GET(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const now = new Date().toISOString()
 
-    // Group records by recipient (Manager - sentTo) for consolidated email
-    const byRecipient = new Map<string, typeof records>()
-    // Group records by sender (Employee - sentFrom/createdBy) for consolidated email
-    const bySender = new Map<string, typeof records>()
+    // Group records by current approver (from approval_steps) and by sender
+    const byApprover = new Map<string, { record: PORecord; level: number; maxLevel: number }[]>()
+    const bySender = new Map<string, { record: PORecord; currentLevel: number; maxLevel: number; approverEmail: string }[]>()
 
     for (const record of records) {
-      // Group by recipient (manager)
-      const existing = byRecipient.get(record.sentTo) || []
-      existing.push(record)
-      byRecipient.set(record.sentTo, existing)
+      const currentLevel = record.currentApprovalLevel || 1
+      const maxLevel = record.maxApprovalLevel || 1
 
-      // Group by sender (employee)
+      // Find the current approver from approval steps
+      let currentApproverEmail = record.sentTo
+      const steps = await getApprovalStepsForPO(record.id)
+      const pendingStep = steps.find(s => s.status === 'pending')
+      if (pendingStep) {
+        currentApproverEmail = pendingStep.approverEmail
+      }
+
+      // Group by approver
+      const approverList = byApprover.get(currentApproverEmail) || []
+      approverList.push({ record, level: currentLevel, maxLevel })
+      byApprover.set(currentApproverEmail, approverList)
+
+      // Group by sender
       const senderKey = record.createdBy || record.sentFrom
       if (senderKey) {
-        const senderExisting = bySender.get(senderKey) || []
-        senderExisting.push(record)
-        bySender.set(senderKey, senderExisting)
+        const senderList = bySender.get(senderKey) || []
+        senderList.push({ record, currentLevel, maxLevel, approverEmail: currentApproverEmail })
+        bySender.set(senderKey, senderList)
       }
     }
 
     let emailsSent = 0
 
-    // Send reminder to each Manager (recipient)
-    for (const [recipientEmail, recipientRecords] of Array.from(byRecipient)) {
+    // Send reminder to each approver
+    for (const [approverEmail, items] of Array.from(byApprover)) {
       try {
-        const poListHtml = recipientRecords.map(r => {
-          const token = generateApprovalToken(r.id)
+        const poListHtml = items.map(({ record: r, level, maxLevel }) => {
+          const token = generateApprovalToken(r.id, level)
           const approveUrl = getApprovalUrl(token, 'approve')
           const rejectUrl = getApprovalUrl(token, 'reject')
           const total = Number(r.total) || 0
@@ -62,62 +82,52 @@ export async function GET(request: NextRequest) {
 
           return `
             <tr>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb;">${r.fileName}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb;">${r.createdBy || r.sentFrom}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb;">${sentDate}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:center;">
-                <a href="${approveUrl}" style="display:inline-block; padding:6px 16px; background:#22c55e; color:white; text-decoration:none; border-radius:4px; font-size:12px; margin-right:4px;">Approve</a>
-                <a href="${rejectUrl}" style="display:inline-block; padding:6px 16px; background:#ef4444; color:white; text-decoration:none; border-radius:4px; font-size:12px;">Reject</a>
-              </td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; font-size:13px;">${r.fileName} ${levelBadge(level, maxLevel)}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; font-size:13px;">${r.createdBy || r.sentFrom}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; text-align:right; font-size:13px;">${emailCurrency(total)}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; font-size:13px;">${sentDate}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; text-align:center;">${miniApprovalButtons(approveUrl, rejectUrl)}</td>
             </tr>
           `
         }).join('')
 
-        const managerHtml = `
-          <div style="font-family:Arial, sans-serif; max-width:700px; margin:0 auto;">
-            <div style="background:#f59e0b; color:white; padding:20px; text-align:center; border-radius:8px 8px 0 0;">
-              <h1 style="margin:0; font-size:22px;">แจ้งเตือน: มี ${recipientRecords.length} รายการ PO รอการอนุมัติ</h1>
-            </div>
-            <div style="background:#f9fafb; padding:20px; border:1px solid #e5e7eb; border-top:none; border-radius:0 0 8px 8px;">
-              <p style="margin:0 0 16px; color:#374151;">รายการ PO ต่อไปนี้ส่งมาแล้วมากกว่า 1 วัน ยังไม่ได้รับการอนุมัติ กรุณาพิจารณาดำเนินการ</p>
-              <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
-                <thead>
-                  <tr style="background:#f3f4f6;">
-                    <th style="padding:10px; text-align:left; border-bottom:2px solid #d1d5db;">ไฟล์</th>
-                    <th style="padding:10px; text-align:left; border-bottom:2px solid #d1d5db;">ผู้ส่ง</th>
-                    <th style="padding:10px; text-align:right; border-bottom:2px solid #d1d5db;">จำนวนเงิน</th>
-                    <th style="padding:10px; text-align:left; border-bottom:2px solid #d1d5db;">วันที่ส่ง</th>
-                    <th style="padding:10px; text-align:center; border-bottom:2px solid #d1d5db;">ดำเนินการ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${poListHtml}
-                </tbody>
-              </table>
-              <div style="text-align:center; margin-top:16px;">
-                <a href="${baseUrl}/dashboard" style="display:inline-block; padding:10px 24px; background:#3b82f6; color:white; text-decoration:none; border-radius:6px; font-weight:bold;">เข้าสู่ Dashboard</a>
-              </div>
-              <p style="margin:16px 0 0; font-size:12px; color:#9ca3af; text-align:center;">อีเมลนี้ส่งอัตโนมัติจากระบบ PO Approval</p>
-            </div>
+        const managerHtml = wrapEmailLayout(`
+          ${emailHeader(`แจ้งเตือน: มี ${items.length} รายการ PO รอการอนุมัติ`, 'warning')}
+          <div style="padding:24px 32px; color:${EMAIL_COLORS.BLACK}; font-size:14px; line-height:1.7;">
+            <p style="margin:0 0 16px;">รายการ PO ต่อไปนี้ส่งมาแล้วมากกว่า 1 วัน ยังไม่ได้รับการอนุมัติ กรุณาพิจารณาดำเนินการ</p>
+            <table style="width:100%; border-collapse:collapse; margin:0 0 16px; border:1px solid #E8E8E9; border-radius:8px; overflow:hidden;">
+              <thead>
+                <tr style="background:${EMAIL_COLORS.LIGHT_BG};">
+                  <th style="padding:10px 14px; text-align:left; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">ไฟล์</th>
+                  <th style="padding:10px 14px; text-align:left; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">ผู้ส่ง</th>
+                  <th style="padding:10px 14px; text-align:right; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">จำนวนเงิน</th>
+                  <th style="padding:10px 14px; text-align:left; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">วันที่ส่ง</th>
+                  <th style="padding:10px 14px; text-align:center; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">ดำเนินการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${poListHtml}
+              </tbody>
+            </table>
+            ${ctaButton('เข้าสู่ Dashboard', `${baseUrl}/dashboard`)}
           </div>
-        `
+        `)
 
         await sendEmail({
-          to: recipientEmail,
-          subject: `แจ้งเตือน: มี ${recipientRecords.length} รายการ PO รอการอนุมัติ`,
+          to: approverEmail,
+          subject: `แจ้งเตือน: มี ${items.length} รายการ PO รอการอนุมัติ`,
           htmlBody: managerHtml,
         })
         emailsSent++
       } catch (error) {
-        console.error(`Error sending reminder to manager ${recipientEmail}:`, error)
+        console.error(`Error sending reminder to approver ${approverEmail}:`, error)
       }
     }
 
-    // Send reminder to each Employee (sender)
-    for (const [senderEmail, senderRecords] of Array.from(bySender)) {
+    // Send reminder to each sender (employee)
+    for (const [senderEmail, items] of Array.from(bySender)) {
       try {
-        const poListHtml = senderRecords.map((r: PORecord) => {
+        const poListHtml = items.map(({ record: r, currentLevel, maxLevel, approverEmail }) => {
           const total = Number(r.total) || 0
           const sentDate = new Date(r.sentAt).toLocaleDateString('th-TH', {
             year: 'numeric', month: 'short', day: 'numeric',
@@ -125,46 +135,39 @@ export async function GET(request: NextRequest) {
 
           return `
             <tr>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb;">${r.fileName}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb;">${r.sentTo}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:right;">$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb;">${sentDate}</td>
-              <td style="padding:10px; border-bottom:1px solid #e5e7eb; text-align:center;">
-                <span style="display:inline-block; padding:4px 12px; background:#fef3c7; color:#92400e; border-radius:12px; font-size:12px;">รอการอนุมัติ</span>
-              </td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; font-size:13px;">${r.fileName}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; font-size:13px;">${approverEmail}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; text-align:right; font-size:13px;">${emailCurrency(total)}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; font-size:13px;">${sentDate}</td>
+              <td style="padding:10px 14px; border-bottom:1px solid #E8E8E9; text-align:center;">${pendingBadge(currentLevel, maxLevel)}</td>
             </tr>
           `
         }).join('')
 
-        const employeeHtml = `
-          <div style="font-family:Arial, sans-serif; max-width:700px; margin:0 auto;">
-            <div style="background:#6366f1; color:white; padding:20px; text-align:center; border-radius:8px 8px 0 0;">
-              <h1 style="margin:0; font-size:22px;">แจ้งเตือน: PO ของคุณ ${senderRecords.length} รายการ ยังรอการอนุมัติ</h1>
-            </div>
-            <div style="background:#f9fafb; padding:20px; border:1px solid #e5e7eb; border-top:none; border-radius:0 0 8px 8px;">
-              <p style="margin:0 0 16px; color:#374151;">รายการ PO ต่อไปนี้ส่งไปแล้วมากกว่า 1 วัน ยังไม่ได้รับการอนุมัติ</p>
-              <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
-                <thead>
-                  <tr style="background:#f3f4f6;">
-                    <th style="padding:10px; text-align:left; border-bottom:2px solid #d1d5db;">ไฟล์</th>
-                    <th style="padding:10px; text-align:left; border-bottom:2px solid #d1d5db;">ส่งถึง</th>
-                    <th style="padding:10px; text-align:right; border-bottom:2px solid #d1d5db;">จำนวนเงิน</th>
-                    <th style="padding:10px; text-align:left; border-bottom:2px solid #d1d5db;">วันที่ส่ง</th>
-                    <th style="padding:10px; text-align:center; border-bottom:2px solid #d1d5db;">สถานะ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${poListHtml}
-                </tbody>
-              </table>
-              <p style="margin:16px 0 0; font-size:12px; color:#9ca3af; text-align:center;">อีเมลนี้ส่งอัตโนมัติจากระบบ PO Approval</p>
-            </div>
+        const employeeHtml = wrapEmailLayout(`
+          ${emailHeader(`PO ของคุณ ${items.length} รายการ ยังรอการอนุมัติ`, 'cyan')}
+          <div style="padding:24px 32px; color:${EMAIL_COLORS.BLACK}; font-size:14px; line-height:1.7;">
+            <p style="margin:0 0 16px;">รายการ PO ต่อไปนี้ส่งไปแล้วมากกว่า 1 วัน ยังไม่ได้รับการอนุมัติ</p>
+            <table style="width:100%; border-collapse:collapse; margin:0 0 16px; border:1px solid #E8E8E9; border-radius:8px; overflow:hidden;">
+              <thead>
+                <tr style="background:${EMAIL_COLORS.LIGHT_BG};">
+                  <th style="padding:10px 14px; text-align:left; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">ไฟล์</th>
+                  <th style="padding:10px 14px; text-align:left; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">รอผู้อนุมัติ</th>
+                  <th style="padding:10px 14px; text-align:right; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">จำนวนเงิน</th>
+                  <th style="padding:10px 14px; text-align:left; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">วันที่ส่ง</th>
+                  <th style="padding:10px 14px; text-align:center; border-bottom:2px solid ${EMAIL_COLORS.PRIMARY}; font-size:12px; color:${EMAIL_COLORS.GREY}; font-weight:700;">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${poListHtml}
+              </tbody>
+            </table>
           </div>
-        `
+        `)
 
         await sendEmail({
           to: senderEmail,
-          subject: `แจ้งเตือน: PO ของคุณ ${senderRecords.length} รายการ ยังรอการอนุมัติ`,
+          subject: `แจ้งเตือน: PO ของคุณ ${items.length} รายการ ยังรอการอนุมัติ`,
           htmlBody: employeeHtml,
         })
         emailsSent++

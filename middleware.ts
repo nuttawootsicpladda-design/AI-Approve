@@ -6,6 +6,7 @@ const publicRoutes = ['/login', '/approve', '/api/auth/login', '/api/auth/callba
 
 // Routes that require specific roles
 const roleRoutes: { path: string; roles: string[] }[] = [
+  { path: '/approvals', roles: ['manager', 'admin'] },
   { path: '/dashboard', roles: ['manager', 'admin'] },
   { path: '/api/dashboard', roles: ['manager', 'admin'] },
   { path: '/admin', roles: ['admin'] },

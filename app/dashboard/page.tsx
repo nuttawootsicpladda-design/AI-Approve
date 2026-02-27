@@ -9,20 +9,35 @@ import {
   DollarSign,
   Users,
   FileText,
-  ArrowLeft,
   RefreshCw,
   Bell,
   Calendar,
-  Send,
-  Clock,
   CheckCircle,
   XCircle,
-  Loader2,
+  Clock,
+  Layers,
+  ClipboardList,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { NavBar } from '@/components/NavBar'
 import { formatCurrency } from '@/lib/utils'
-import { POItem } from '@/lib/types'
+import { UserRole, ApprovalStatus } from '@/lib/types'
+
+interface StatusTrackingItem {
+  id: string
+  fileName: string
+  sentTo: string
+  createdBy: string
+  total: number
+  sentAt: string
+  approvalStatus: ApprovalStatus
+  currentApprovalLevel: number
+  maxApprovalLevel: number
+  approvedAt: string | null
+  rejectedAt: string | null
+  approvalComment: string | null
+}
 
 interface DashboardData {
   summary: {
@@ -51,17 +66,78 @@ interface DashboardData {
     total: number
     sentAt: string
   }[]
+  statusTracking: StatusTrackingItem[]
 }
 
-interface PendingRecord {
-  id: string
-  fileName: string
-  sentTo: string
-  sentFrom: string
-  total: number
-  sentAt: string
-  createdBy?: string
-  items: POItem[]
+type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected'
+
+// Status badge component
+function StatusBadge({ status, currentLevel, maxLevel }: { status: ApprovalStatus; currentLevel: number; maxLevel: number }) {
+  const isMultiLevel = maxLevel > 1
+
+  if (status === 'approved') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-icp-success-light text-icp-success">
+        <CheckCircle className="h-3 w-3" />
+        อนุมัติแล้ว
+      </span>
+    )
+  }
+  if (status === 'rejected') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-icp-danger-light text-icp-danger">
+        <XCircle className="h-3 w-3" />
+        ไม่อนุมัติ
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-icp-warning-light text-icp-warning-dark">
+      <Clock className="h-3 w-3" />
+      รอ{isMultiLevel ? ` (${currentLevel}/${maxLevel})` : 'อนุมัติ'}
+    </span>
+  )
+}
+
+// Level progress dots
+function LevelProgress({ current, max, status }: { current: number; max: number; status: ApprovalStatus }) {
+  if (max <= 1) return null
+  return (
+    <div className="flex items-center gap-1 mt-1">
+      {Array.from({ length: max }, (_, i) => {
+        const level = i + 1
+        const isApproved = status === 'approved' ? true : level < current
+        const isCurrent = level === current && status === 'pending'
+        const isRejected = level === current && status === 'rejected'
+
+        let cls = 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold '
+        if (isApproved && (status === 'approved' || level < current)) {
+          cls += 'bg-icp-success text-white'
+        } else if (isCurrent) {
+          cls += 'bg-icp-warning text-white'
+        } else if (isRejected) {
+          cls += 'bg-icp-danger text-white'
+        } else {
+          cls += 'bg-gray-200 text-gray-500'
+        }
+
+        return (
+          <div key={level} className="flex items-center gap-0.5">
+            <div className={cls}>
+              {isApproved && (status === 'approved' || level < current) ? (
+                <CheckCircle className="h-3 w-3" />
+              ) : isRejected ? (
+                <XCircle className="h-3 w-3" />
+              ) : (
+                level
+              )}
+            </div>
+            {level < max && <span className="text-gray-300 text-[10px]">&rarr;</span>}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function DashboardPage() {
@@ -72,13 +148,15 @@ export default function DashboardPage() {
   const [showLineNotify, setShowLineNotify] = useState(false)
   const [lineToken, setLineToken] = useState('')
   const [isSavingToken, setIsSavingToken] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
+  const [userName, setUserName] = useState('')
+  const [userRole, setUserRole] = useState<UserRole>('employee')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
-  // Pending approval state
-  const [pendingRecords, setPendingRecords] = useState<PendingRecord[]>([])
-  const [pendingLoading, setPendingLoading] = useState(true)
-  const [processingId, setProcessingId] = useState<string | null>(null)
-  const [approvalComment, setApprovalComment] = useState('')
-  const [showCommentFor, setShowCommentFor] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null)
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+  }
 
   const fetchDashboard = async () => {
     setIsLoading(true)
@@ -98,58 +176,32 @@ export default function DashboardPage() {
     }
   }
 
-  const fetchPending = async () => {
-    setPendingLoading(true)
+  const fetchPendingCount = async () => {
     try {
       const response = await fetch('/api/dashboard/pending')
       const result = await response.json()
       if (result.success) {
-        setPendingRecords(result.data)
+        setPendingCount(result.data.length)
       }
-    } catch {
-      console.error('Failed to fetch pending records')
-    } finally {
-      setPendingLoading(false)
-    }
+    } catch {}
   }
 
   useEffect(() => {
+    try {
+      const userInfoCookie = document.cookie.split('; ').find(c => c.startsWith('user-info='))
+      if (userInfoCookie) {
+        const info = JSON.parse(decodeURIComponent(userInfoCookie.split('=')[1]))
+        setUserName(info.name || info.email || '')
+        setUserRole(info.role || 'employee')
+      }
+    } catch {}
     fetchDashboard()
-    fetchPending()
+    fetchPendingCount()
     const savedToken = localStorage.getItem('line-notify-token')
     if (savedToken) {
       setLineToken(savedToken)
     }
   }, [])
-
-  const handleApprovalAction = async (recordId: string, action: 'approve' | 'reject') => {
-    setProcessingId(recordId)
-    try {
-      const response = await fetch('/api/dashboard/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordId, action, comment: approvalComment }),
-      })
-      const result = await response.json()
-      if (result.success) {
-        setPendingRecords(prev => prev.filter(r => r.id !== recordId))
-        setShowCommentFor(null)
-        setApprovalComment('')
-        fetchDashboard()
-      } else {
-        alert(result.error || 'Failed to process approval')
-      }
-    } catch {
-      alert('Failed to process approval')
-    } finally {
-      setProcessingId(null)
-    }
-  }
-
-  const openCommentDialog = (id: string, action: 'approve' | 'reject') => {
-    setShowCommentFor({ id, action })
-    setApprovalComment('')
-  }
 
   const saveLineToken = () => {
     setIsSavingToken(true)
@@ -190,48 +242,52 @@ export default function DashboardPage() {
     ? Math.max(...data.monthlyData.map(d => d.sent), 1)
     : 1
 
+  // Filter status tracking
+  const filteredTracking = data?.statusTracking?.filter(item => {
+    if (statusFilter === 'all') return true
+    return item.approvalStatus === statusFilter
+  }) || []
+
+  // Count by status
+  const statusCounts = {
+    all: data?.statusTracking?.length || 0,
+    pending: data?.statusTracking?.filter(i => i.approvalStatus === 'pending').length || 0,
+    approved: data?.statusTracking?.filter(i => i.approvalStatus === 'approved').length || 0,
+    rejected: data?.statusTracking?.filter(i => i.approvalStatus === 'rejected').length || 0,
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.push('/')}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <BarChart3 className="h-7 w-7 text-primary" />
-                Dashboard
-                {pendingRecords.length > 0 && (
-                  <span className="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-red-500 rounded-full">
-                    {pendingRecords.length}
-                  </span>
-                )}
-              </h1>
-              <p className="text-muted-foreground">ภาพรวมการส่ง PO</p>
+        {/* Navigation Bar */}
+        <NavBar
+          activePage="dashboard"
+          userRole={userRole}
+          userName={userName}
+          onLogout={handleLogout}
+          rightContent={
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowLineNotify(!showLineNotify)}
+                className="gap-1.5"
+              >
+                <Bell className="h-4 w-4" />
+                <span className="hidden md:inline">Line Notify</span>
+              </Button>
+              <Button variant="outline" size="sm" onClick={fetchDashboard} disabled={isLoading}>
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
             </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowLineNotify(!showLineNotify)}
-              className="gap-2"
-            >
-              <Bell className="h-4 w-4" />
-              Line Notify
-            </Button>
-            <Button variant="outline" onClick={() => { fetchDashboard(); fetchPending() }} disabled={isLoading}>
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Line Notify Config */}
         {showLineNotify && (
-          <Card className="border-2 border-green-200 bg-green-50">
+          <Card className="border-2 border-icp-success/30 bg-icp-success-light">
             <CardHeader>
-              <CardTitle className="text-green-700 flex items-center gap-2">
+              <CardTitle className="text-icp-success flex items-center gap-2">
                 <Bell className="h-5 w-5" />
                 ตั้งค่า Line Notify
               </CardTitle>
@@ -252,134 +308,19 @@ export default function DashboardPage() {
                     href="https://notify-bot.line.me/my/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-green-600 underline"
+                    className="text-icp-primary underline"
                   >
                     notify-bot.line.me/my
                   </a>
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button onClick={saveLineToken} disabled={isSavingToken} className="bg-green-600 hover:bg-green-700">
+                <Button onClick={saveLineToken} disabled={isSavingToken} className="bg-icp-success hover:bg-icp-success-dark">
                   {isSavingToken ? 'กำลังบันทึก...' : 'บันทึก Token'}
                 </Button>
                 <Button variant="outline" onClick={testLineNotify}>
                   ทดสอบส่งข้อความ
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Pending Approvals Section */}
-        {!pendingLoading && pendingRecords.length > 0 && (
-          <Card className="border-2 border-yellow-300 bg-yellow-50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-yellow-800">
-                <Clock className="h-5 w-5" />
-                PO รอการอนุมัติ ({pendingRecords.length} รายการ)
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {pendingRecords.map(record => (
-                  <div key={record.id} className="bg-white rounded-lg border p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                          <span className="font-semibold text-sm truncate">{record.fileName}</span>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground">
-                          <div>
-                            <span className="font-medium">ส่งถึง:</span> {record.sentTo}
-                          </div>
-                          <div>
-                            <span className="font-medium">ผู้ส่ง:</span> {record.createdBy || record.sentFrom}
-                          </div>
-                          <div>
-                            <span className="font-medium">ยอดรวม:</span>{' '}
-                            <span className="text-green-700 font-bold">{formatCurrency(record.total)}</span>
-                          </div>
-                          <div>
-                            <span className="font-medium">วันที่:</span>{' '}
-                            {new Date(record.sentAt).toLocaleDateString('th-TH', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        {processingId === record.id ? (
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                        ) : showCommentFor?.id === record.id ? null : (
-                          <>
-                            <Button
-                              size="sm"
-                              className="bg-green-600 hover:bg-green-700"
-                              onClick={() => openCommentDialog(record.id, 'approve')}
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              อนุมัติ
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => openCommentDialog(record.id, 'reject')}
-                            >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              ไม่อนุมัติ
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Comment Dialog */}
-                    {showCommentFor?.id === record.id && (
-                      <div className="mt-3 pt-3 border-t">
-                        <label className="text-sm font-medium block mb-1">
-                          หมายเหตุ (ไม่บังคับ)
-                        </label>
-                        <textarea
-                          value={approvalComment}
-                          onChange={(e) => setApprovalComment(e.target.value)}
-                          placeholder="ใส่หมายเหตุ..."
-                          className="w-full p-2 border rounded-md text-sm mb-2"
-                          rows={2}
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className={showCommentFor.action === 'approve' ? 'bg-green-600 hover:bg-green-700' : ''}
-                            variant={showCommentFor.action === 'reject' ? 'destructive' : 'default'}
-                            onClick={() => handleApprovalAction(record.id, showCommentFor.action)}
-                            disabled={processingId === record.id}
-                          >
-                            {processingId === record.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                            ) : showCommentFor.action === 'approve' ? (
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                            ) : (
-                              <XCircle className="h-4 w-4 mr-1" />
-                            )}
-                            {showCommentFor.action === 'approve' ? 'ยืนยันอนุมัติ' : 'ยืนยันไม่อนุมัติ'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => { setShowCommentFor(null); setApprovalComment('') }}
-                          >
-                            ยกเลิก
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
               </div>
             </CardContent>
           </Card>
@@ -399,7 +340,7 @@ export default function DashboardPage() {
           <>
             {/* Summary Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+              <Card className="bg-gradient-to-br from-icp-primary to-icp-primary-dark text-white">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -411,7 +352,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
+              <Card className="bg-gradient-to-br from-icp-success to-icp-success-dark text-white">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -423,11 +364,11 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+              <Card className="bg-gradient-to-br from-icp-cyan to-icp-cyan-dark text-white">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-purple-100 text-sm">เดือนนี้</p>
+                      <p className="text-cyan-100 text-sm">เดือนนี้</p>
                       <p className="text-3xl font-bold">{data.summary.thisMonthCount}</p>
                       <div className="flex items-center gap-1 mt-1">
                         {data.summary.countGrowth >= 0 ? (
@@ -440,16 +381,16 @@ export default function DashboardPage() {
                         </span>
                       </div>
                     </div>
-                    <Calendar className="h-10 w-10 text-purple-200" />
+                    <Calendar className="h-10 w-10 text-cyan-200" />
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+              <Card className="bg-gradient-to-br from-icp-warning to-icp-warning-dark text-white">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-orange-100 text-sm">ยอดเดือนนี้</p>
+                      <p className="text-yellow-100 text-sm">ยอดเดือนนี้</p>
                       <p className="text-2xl font-bold">{formatCurrency(data.summary.thisMonthAmount)}</p>
                       <div className="flex items-center gap-1 mt-1">
                         {data.summary.amountGrowth >= 0 ? (
@@ -462,11 +403,129 @@ export default function DashboardPage() {
                         </span>
                       </div>
                     </div>
-                    <TrendingUp className="h-10 w-10 text-orange-200" />
+                    <TrendingUp className="h-10 w-10 text-yellow-200" />
                   </div>
                 </CardContent>
               </Card>
             </div>
+
+            {/* PO Status Tracking Table */}
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <CardTitle className="flex items-center gap-2">
+                    <ClipboardList className="h-5 w-5" />
+                    สถานะ PO ทั้งหมด
+                  </CardTitle>
+                  {/* Filter Tabs */}
+                  <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-0.5">
+                    {([
+                      { key: 'all', label: 'ทั้งหมด', icon: null },
+                      { key: 'pending', label: 'รออนุมัติ', icon: <Clock className="h-3 w-3" /> },
+                      { key: 'approved', label: 'อนุมัติ', icon: <CheckCircle className="h-3 w-3" /> },
+                      { key: 'rejected', label: 'ไม่อนุมัติ', icon: <XCircle className="h-3 w-3" /> },
+                    ] as { key: StatusFilter; label: string; icon: React.ReactNode }[]).map(tab => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setStatusFilter(tab.key)}
+                        className={`
+                          flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                          ${statusFilter === tab.key
+                            ? 'bg-white shadow-sm text-icp-primary'
+                            : 'text-muted-foreground hover:text-foreground'
+                          }
+                        `}
+                      >
+                        {tab.icon}
+                        {tab.label}
+                        <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          statusFilter === tab.key ? 'bg-icp-primary/10 text-icp-primary' : 'bg-gray-200 text-gray-500'
+                        }`}>
+                          {statusCounts[tab.key]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left p-3 font-medium text-muted-foreground text-sm">ไฟล์</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground text-sm">ส่งถึง</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground text-sm">ผู้ส่ง</th>
+                        <th className="text-right p-3 font-medium text-muted-foreground text-sm">ยอดรวม</th>
+                        <th className="text-center p-3 font-medium text-muted-foreground text-sm">สถานะ</th>
+                        <th className="text-center p-3 font-medium text-muted-foreground text-sm">Level</th>
+                        <th className="text-right p-3 font-medium text-muted-foreground text-sm">วันที่ส่ง</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTracking.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="text-center p-8 text-muted-foreground">
+                            ไม่มีข้อมูล
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredTracking.map((item) => (
+                          <tr key={item.id} className="border-b hover:bg-muted/30 transition-colors">
+                            <td className="p-3">
+                              <div className="flex items-center gap-2">
+                                <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                <span className="font-medium text-sm truncate max-w-[180px]">
+                                  {item.fileName}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-3 text-sm text-muted-foreground truncate max-w-[150px]">
+                              {item.sentTo}
+                            </td>
+                            <td className="p-3 text-sm text-muted-foreground truncate max-w-[150px]">
+                              {item.createdBy}
+                            </td>
+                            <td className="p-3 text-right font-semibold text-sm">
+                              {formatCurrency(item.total)}
+                            </td>
+                            <td className="p-3 text-center">
+                              <StatusBadge
+                                status={item.approvalStatus}
+                                currentLevel={item.currentApprovalLevel}
+                                maxLevel={item.maxApprovalLevel}
+                              />
+                            </td>
+                            <td className="p-3">
+                              <div className="flex justify-center">
+                                {item.maxApprovalLevel > 1 ? (
+                                  <LevelProgress
+                                    current={item.currentApprovalLevel}
+                                    max={item.maxApprovalLevel}
+                                    status={item.approvalStatus}
+                                  />
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">-</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-3 text-right text-sm text-muted-foreground whitespace-nowrap">
+                              {new Date(item.sentAt).toLocaleDateString('th-TH', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Charts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -490,7 +549,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="h-6 bg-muted rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full transition-all duration-500"
+                            className="h-full bg-gradient-to-r from-icp-primary to-icp-primary-200 rounded-full transition-all duration-500"
                             style={{ width: `${(month.sent / maxMonthlyValue) * 100}%` }}
                           />
                         </div>
@@ -519,7 +578,7 @@ export default function DashboardPage() {
                           className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-sm font-bold text-primary">
+                            <div className="w-8 h-8 bg-icp-primary/10 rounded-full flex items-center justify-center text-sm font-bold text-icp-primary">
                               {index + 1}
                             </div>
                             <div>
@@ -537,65 +596,6 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             </div>
-
-            {/* Recent Activity */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Send className="h-5 w-5" />
-                  PO ที่ส่งล่าสุด
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left p-3 font-medium text-muted-foreground">ไฟล์</th>
-                        <th className="text-left p-3 font-medium text-muted-foreground">ส่งถึง</th>
-                        <th className="text-right p-3 font-medium text-muted-foreground">ยอดรวม</th>
-                        <th className="text-right p-3 font-medium text-muted-foreground">วันที่ส่ง</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.recentActivity.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="text-center p-8 text-muted-foreground">
-                            ไม่มีข้อมูล
-                          </td>
-                        </tr>
-                      ) : (
-                        data.recentActivity.map((activity, index) => (
-                          <tr key={index} className="border-b hover:bg-muted/50">
-                            <td className="p-3">
-                              <div className="flex items-center gap-2">
-                                <FileText className="h-4 w-4 text-muted-foreground" />
-                                <span className="font-medium truncate max-w-[200px]">
-                                  {activity.fileName}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="p-3 text-muted-foreground">{activity.sentTo}</td>
-                            <td className="p-3 text-right font-semibold">
-                              {formatCurrency(activity.total)}
-                            </td>
-                            <td className="p-3 text-right text-muted-foreground">
-                              {new Date(activity.sentAt).toLocaleDateString('th-TH', {
-                                day: 'numeric',
-                                month: 'short',
-                                year: '2-digit',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
           </>
         ) : null}
       </div>

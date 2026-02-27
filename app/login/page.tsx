@@ -26,14 +26,14 @@ function LoginContent() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex flex-col items-center gap-3 mb-2">
-            <img src="/logo3.png" alt="ICP Ladda Logo" style={{ width: '150px', height: '150px' }} />
-            <CardTitle className="text-2xl font-bold">PO Approval System</CardTitle>
+            <img src="https://i.ibb.co/4wdW4yvd/ICP-ladda-logo-01-Copy.png" alt="ICP Ladda Logo" style={{ width: '150px', height: 'auto' }} />
+            <CardTitle className="text-2xl font-bold text-icp-black">PO Approval System</CardTitle>
           </div>
-          <p className="text-gray-500 mt-2">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
+          <p className="text-icp-grey mt-2">กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ</p>
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
+            <div className="bg-icp-danger-light text-icp-danger p-3 rounded-lg text-sm">
               {error === 'access_denied'
                 ? 'การเข้าสู่ระบบถูกปฏิเสธ'
                 : 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ กรุณาลองใหม่อีกครั้ง'}
@@ -41,7 +41,7 @@ function LoginContent() {
           )}
           <Button
             onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3"
+            className="w-full flex items-center justify-center gap-3 bg-icp-primary hover:bg-icp-primary-dark"
             size="lg"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 21 21">

@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft,
   Trash2,
   Eye,
   Loader2,
@@ -13,26 +12,30 @@ import {
   CheckCircle,
   XCircle,
   Clock,
+  Layers,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { PORecord } from '@/lib/types'
+import { NavBar } from '@/components/NavBar'
+import { PORecord, UserRole } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 
 // Approval status badge component
-function ApprovalBadge({ status }: { status?: string }) {
+function ApprovalBadge({ status, currentLevel, maxLevel }: { status?: string; currentLevel?: number; maxLevel?: number }) {
+  const levelText = maxLevel && maxLevel > 1 ? ` (Level ${currentLevel || 1}/${maxLevel})` : ''
+
   if (!status || status === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-icp-warning-light text-icp-warning-dark">
         <Clock className="h-3 w-3" />
-        รอการอนุมัติ
+        รอการอนุมัติ{levelText}
       </span>
     )
   }
   if (status === 'approved') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-icp-success-light text-icp-success">
         <CheckCircle className="h-3 w-3" />
         อนุมัติแล้ว
       </span>
@@ -40,7 +43,7 @@ function ApprovalBadge({ status }: { status?: string }) {
   }
   if (status === 'rejected') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-icp-danger-light text-icp-danger">
         <XCircle className="h-3 w-3" />
         ไม่อนุมัติ
       </span>
@@ -50,11 +53,27 @@ function ApprovalBadge({ status }: { status?: string }) {
 }
 
 export default function HistoryPage() {
+  const router = useRouter()
   const [records, setRecords] = useState<PORecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedRecord, setSelectedRecord] = useState<PORecord | null>(null)
+  const [userName, setUserName] = useState('')
+  const [userRole, setUserRole] = useState<UserRole>('employee')
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    router.push('/login')
+  }
 
   useEffect(() => {
+    try {
+      const userInfoCookie = document.cookie.split('; ').find(c => c.startsWith('user-info='))
+      if (userInfoCookie) {
+        const info = JSON.parse(decodeURIComponent(userInfoCookie.split('=')[1]))
+        setUserName(info.name || info.email || '')
+        setUserRole(info.role || 'employee')
+      }
+    } catch {}
     fetchRecords()
   }, [])
 
@@ -94,21 +113,15 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">PO History</h1>
-            <p className="text-sm text-gray-600 mt-1">View all sent purchase orders</p>
-          </div>
-          <Link href="/">
-            <Button variant="outline">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Home
-            </Button>
-          </Link>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Navigation Bar */}
+        <NavBar
+          activePage="history"
+          userRole={userRole}
+          userName={userName}
+          onLogout={handleLogout}
+        />
 
         {isLoading ? (
           <Card>
@@ -126,61 +139,74 @@ export default function HistoryPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Records List */}
             <div className="lg:col-span-1 space-y-4">
-              {records.map((record) => (
-                <Card
-                  key={record.id}
-                  className={`cursor-pointer transition-all ${
-                    selectedRecord?.id === record.id
-                      ? 'ring-2 ring-primary shadow-lg'
-                      : 'hover:shadow-md'
-                  }`}
-                  onClick={() => setSelectedRecord(record)}
-                >
-                  <CardContent className="p-4">
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-sm truncate">{record.fileName}</h3>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(record.sentAt), 'MMM dd, yyyy HH:mm')}
+              {records.map((record) => {
+                const isMultiLevel = record.maxApprovalLevel && record.maxApprovalLevel > 1
+                return (
+                  <Card
+                    key={record.id}
+                    className={`cursor-pointer transition-all ${
+                      selectedRecord?.id === record.id
+                        ? 'ring-2 ring-icp-primary shadow-lg'
+                        : 'hover:shadow-md'
+                    }`}
+                    onClick={() => setSelectedRecord(record)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-sm truncate">{record.fileName}</h3>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(record.sentAt), 'MMM dd, yyyy HH:mm')}
+                            </div>
+                          </div>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 flex-shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDelete(record.id)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs">
+                          <div className="flex items-center gap-1">
+                            <Mail className="h-3 w-3 text-muted-foreground" />
+                            <span className="truncate">{record.sentTo}</span>
                           </div>
                         </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 flex-shrink-0"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDelete(record.id)
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                      <div className="flex items-center gap-4 text-xs">
-                        <div className="flex items-center gap-1">
-                          <Mail className="h-3 w-3 text-muted-foreground" />
-                          <span className="truncate">{record.sentTo}</span>
+                        {/* Approval Status Badge */}
+                        <div className="pt-1 flex items-center gap-2">
+                          <ApprovalBadge
+                            status={record.approvalStatus}
+                            currentLevel={record.currentApprovalLevel}
+                            maxLevel={record.maxApprovalLevel}
+                          />
+                          {isMultiLevel && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-icp-primary-light text-icp-primary rounded-full text-xs">
+                              <Layers className="h-3 w-3" />
+                              {record.maxApprovalLevel} Levels
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 pt-1 border-t">
+                          <DollarSign className="h-4 w-4 text-icp-success" />
+                          <span className="font-bold text-sm">
+                            {formatCurrency(record.total)}
+                          </span>
+                          <span className="text-xs text-muted-foreground ml-auto">
+                            {record.items.length} items
+                          </span>
                         </div>
                       </div>
-                      {/* Approval Status Badge */}
-                      <div className="pt-1">
-                        <ApprovalBadge status={record.approvalStatus} />
-                      </div>
-                      <div className="flex items-center gap-1 pt-1 border-t">
-                        <DollarSign className="h-4 w-4 text-green-600" />
-                        <span className="font-bold text-sm">
-                          {formatCurrency(record.total)}
-                        </span>
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          {record.items.length} items
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
 
             {/* Record Details */}
@@ -210,7 +236,7 @@ export default function HistoryPage() {
                         </div>
                         <div>
                           <p className="text-muted-foreground mb-1">Total Amount</p>
-                          <p className="font-bold text-lg text-green-600">
+                          <p className="font-bold text-lg text-icp-success">
                             {formatCurrency(selectedRecord.total)}
                           </p>
                         </div>
@@ -226,8 +252,64 @@ export default function HistoryPage() {
                       <div className="p-4 bg-muted rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-semibold">Approval Status</span>
-                          <ApprovalBadge status={selectedRecord.approvalStatus} />
+                          <ApprovalBadge
+                            status={selectedRecord.approvalStatus}
+                            currentLevel={selectedRecord.currentApprovalLevel}
+                            maxLevel={selectedRecord.maxApprovalLevel}
+                          />
                         </div>
+
+                        {/* Multi-level info */}
+                        {selectedRecord.maxApprovalLevel && selectedRecord.maxApprovalLevel > 1 && (
+                          <div className="mb-3 p-3 bg-icp-primary-light rounded-md">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Layers className="h-4 w-4 text-icp-primary" />
+                              <span className="text-sm font-medium text-icp-primary">
+                                Multi-Level Approval ({selectedRecord.maxApprovalLevel} Levels)
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {Array.from({ length: selectedRecord.maxApprovalLevel }, (_, i) => {
+                                const level = i + 1
+                                const currentLevel = selectedRecord.currentApprovalLevel || 1
+                                const isLevelApproved = selectedRecord.approvalStatus === 'approved'
+                                  ? true
+                                  : level < currentLevel
+                                const isPending = !isLevelApproved && level === currentLevel && selectedRecord.approvalStatus === 'pending'
+                                const isRejected = selectedRecord.approvalStatus === 'rejected' && level === currentLevel
+
+                                let bgColor = 'bg-gray-200 text-icp-grey'
+                                if (isLevelApproved && (selectedRecord.approvalStatus === 'approved' || level < currentLevel)) {
+                                  bgColor = 'bg-icp-success text-white'
+                                } else if (isPending) {
+                                  bgColor = 'bg-icp-warning text-white'
+                                } else if (isRejected) {
+                                  bgColor = 'bg-icp-danger text-white'
+                                }
+
+                                return (
+                                  <div key={level} className="flex items-center gap-1">
+                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${bgColor}`}>
+                                      {isLevelApproved && (selectedRecord.approvalStatus === 'approved' || level < currentLevel) ? (
+                                        <CheckCircle className="h-4 w-4" />
+                                      ) : isRejected ? (
+                                        <XCircle className="h-4 w-4" />
+                                      ) : isPending ? (
+                                        <Clock className="h-3.5 w-3.5" />
+                                      ) : (
+                                        level
+                                      )}
+                                    </div>
+                                    {level < selectedRecord.maxApprovalLevel! && (
+                                      <span className="text-gray-400 text-xs">&rarr;</span>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+
                         {selectedRecord.approvedAt && (
                           <p className="text-sm text-muted-foreground">
                             อนุมัติเมื่อ: {format(new Date(selectedRecord.approvedAt), 'MMMM dd, yyyy HH:mm')}
@@ -251,13 +333,13 @@ export default function HistoryPage() {
                         <div className="overflow-x-auto">
                           <table className="w-full border-collapse text-sm">
                             <thead>
-                              <tr className="bg-muted">
-                                <th className="border border-border p-2 text-left">No.</th>
-                                <th className="border border-border p-2 text-left">Name</th>
-                                <th className="border border-border p-2 text-right">Quantity</th>
-                                <th className="border border-border p-2 text-right">Cost</th>
-                                <th className="border border-border p-2 text-left">P/O No.</th>
-                                <th className="border border-border p-2 text-right">Total</th>
+                              <tr className="bg-icp-primary text-white">
+                                <th className="border border-icp-primary-dark p-2 text-left">No.</th>
+                                <th className="border border-icp-primary-dark p-2 text-left">Name</th>
+                                <th className="border border-icp-primary-dark p-2 text-right">Quantity</th>
+                                <th className="border border-icp-primary-dark p-2 text-right">Cost</th>
+                                <th className="border border-icp-primary-dark p-2 text-left">P/O No.</th>
+                                <th className="border border-icp-primary-dark p-2 text-right">Total</th>
                               </tr>
                             </thead>
                             <tbody>

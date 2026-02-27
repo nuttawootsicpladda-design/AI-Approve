@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { PORecord, User, UserRole } from './types'
+import { PORecord, User, UserRole, ApprovalLevelConfig, ApprovalStep, ApprovalStatus } from './types'
 
 // Helper: map Supabase row to PORecord
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,6 +23,8 @@ function mapRecord(record: any): PORecord {
     approvedFolderPath: record.approved_folder_path,
     createdBy: record.created_by,
     lastReminderSent: record.last_reminder_sent,
+    currentApprovalLevel: record.current_approval_level,
+    maxApprovalLevel: record.max_approval_level,
   }
 }
 
@@ -75,6 +77,8 @@ export async function saveRecord(record: Omit<PORecord, 'id'>): Promise<PORecord
       sharepoint_files: record.sharePointFiles,
       approved_folder_path: record.approvedFolderPath,
       created_by: record.createdBy?.toLowerCase(),
+      current_approval_level: record.currentApprovalLevel || 1,
+      max_approval_level: record.maxApprovalLevel || 1,
     })
     .select()
     .single()
@@ -139,6 +143,8 @@ export async function updateRecord(id: string, updates: Partial<PORecord>): Prom
   if (updates.approvedFolderPath !== undefined) supabaseUpdates.approved_folder_path = updates.approvedFolderPath
   if (updates.createdBy !== undefined) supabaseUpdates.created_by = updates.createdBy
   if (updates.lastReminderSent !== undefined) supabaseUpdates.last_reminder_sent = updates.lastReminderSent
+  if (updates.currentApprovalLevel !== undefined) supabaseUpdates.current_approval_level = updates.currentApprovalLevel
+  if (updates.maxApprovalLevel !== undefined) supabaseUpdates.max_approval_level = updates.maxApprovalLevel
 
   const { data, error } = await supabase
     .from('po_records')
@@ -296,4 +302,202 @@ export async function deleteUser(id: string): Promise<boolean> {
   }
 
   return true
+}
+
+// ===============================
+// Approval Level Config (Admin)
+// ===============================
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApprovalLevel(row: any): ApprovalLevelConfig {
+  return {
+    id: row.id,
+    level: row.level,
+    levelName: row.level_name,
+    maxAmount: row.max_amount !== null ? Number(row.max_amount) : null,
+    approverEmail: row.approver_email,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function getApprovalLevelConfigs(): Promise<ApprovalLevelConfig[]> {
+  const { data, error } = await supabase
+    .from('approval_levels')
+    .select('*')
+    .order('level', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching approval levels:', error)
+    return []
+  }
+  return (data || []).map(mapApprovalLevel)
+}
+
+export async function getActiveApprovalLevels(): Promise<ApprovalLevelConfig[]> {
+  const { data, error } = await supabase
+    .from('approval_levels')
+    .select('*')
+    .eq('is_active', true)
+    .order('level', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching active approval levels:', error)
+    return []
+  }
+  return (data || []).map(mapApprovalLevel)
+}
+
+export async function upsertApprovalLevelConfig(config: {
+  level: number
+  levelName: string
+  maxAmount: number | null
+  approverEmail: string
+  isActive: boolean
+}): Promise<ApprovalLevelConfig | null> {
+  const { data, error } = await supabase
+    .from('approval_levels')
+    .upsert({
+      level: config.level,
+      level_name: config.levelName,
+      max_amount: config.maxAmount,
+      approver_email: config.approverEmail.toLowerCase(),
+      is_active: config.isActive,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'level' })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Error upserting approval level:', error)
+    return null
+  }
+  return mapApprovalLevel(data)
+}
+
+export async function deleteApprovalLevelConfig(id: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('approval_levels')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error deleting approval level:', error)
+    return false
+  }
+  return true
+}
+
+// ===============================
+// Approval Steps (Per-PO)
+// ===============================
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApprovalStep(row: any): ApprovalStep {
+  return {
+    id: row.id,
+    poRecordId: row.po_record_id,
+    level: row.level,
+    approverEmail: row.approver_email,
+    status: row.status as ApprovalStatus,
+    approvalToken: row.approval_token,
+    comment: row.comment,
+    actedAt: row.acted_at,
+    createdAt: row.created_at,
+  }
+}
+
+export async function createApprovalStep(step: {
+  poRecordId: string
+  level: number
+  approverEmail: string
+  approvalToken: string
+}): Promise<ApprovalStep | null> {
+  const { data, error } = await supabase
+    .from('approval_steps')
+    .insert({
+      po_record_id: step.poRecordId,
+      level: step.level,
+      approver_email: step.approverEmail.toLowerCase(),
+      approval_token: step.approvalToken,
+      status: 'pending',
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Error creating approval step:', error)
+    return null
+  }
+  return mapApprovalStep(data)
+}
+
+export async function getApprovalStepsForPO(poRecordId: string): Promise<ApprovalStep[]> {
+  const { data, error } = await supabase
+    .from('approval_steps')
+    .select('*')
+    .eq('po_record_id', poRecordId)
+    .order('level', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching approval steps:', error)
+    return []
+  }
+  return (data || []).map(mapApprovalStep)
+}
+
+export async function getApprovalStepByToken(token: string): Promise<ApprovalStep | null> {
+  const { data, error } = await supabase
+    .from('approval_steps')
+    .select('*')
+    .eq('approval_token', token)
+    .single()
+
+  if (error || !data) return null
+  return mapApprovalStep(data)
+}
+
+export async function updateApprovalStep(id: string, updates: {
+  status: ApprovalStatus
+  comment?: string
+  actedAt: string
+}): Promise<ApprovalStep | null> {
+  const { data, error } = await supabase
+    .from('approval_steps')
+    .update({
+      status: updates.status,
+      comment: updates.comment || null,
+      acted_at: updates.actedAt,
+    })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error || !data) {
+    console.error('Error updating approval step:', error)
+    return null
+  }
+  return mapApprovalStep(data)
+}
+
+export async function getPendingStepsForApprover(
+  approverEmail: string
+): Promise<(ApprovalStep & { poRecord: PORecord })[]> {
+  const { data, error } = await supabase
+    .from('approval_steps')
+    .select('*, po_records(*)')
+    .eq('approver_email', approverEmail.toLowerCase())
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching pending steps for approver:', error)
+    return []
+  }
+
+  return (data || []).map((row: any) => ({
+    ...mapApprovalStep(row),
+    poRecord: mapRecord(row.po_records),
+  }))
 }

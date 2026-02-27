@@ -18,14 +18,10 @@ import {
   Upload,
   FolderOpen,
   Paperclip,
-  LogOut,
-  BarChart3,
-  History,
-  Shield,
 } from 'lucide-react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { UserRole } from '@/lib/types'
+import { NavBar } from '@/components/NavBar'
 import { format } from 'date-fns'
 
 type Step = 'upload' | 'preview' | 'sent'
@@ -270,15 +266,15 @@ export default function Home() {
       const total = mergedItems.reduce((sum, item) => sum + Number(item.usd), 0)
 
       const htmlTable = `
-        <table style="border-collapse:collapse;font-family:Arial;font-size:14px;width:100%;">
+        <table style="border-collapse:collapse;font-family:'Public Sans',Arial,sans-serif;font-size:14px;width:100%;">
           <thead>
-            <tr style="background-color:#16a34a;color:white;">
-              <th style="border:1px solid #15803d;padding:8px;">${t.table.no}</th>
-              <th style="border:1px solid #15803d;padding:8px;">${t.table.name}</th>
-              <th style="border:1px solid #15803d;padding:8px;">${t.table.quantity}</th>
-              <th style="border:1px solid #15803d;padding:8px;">${t.table.cost}</th>
-              <th style="border:1px solid #15803d;padding:8px;">${t.table.poNo}</th>
-              <th style="border:1px solid #15803d;padding:8px;">${t.table.usd}</th>
+            <tr style="background-color:#004F9F;color:white;">
+              <th style="border:1px solid #003F7F;padding:8px;">${t.table.no}</th>
+              <th style="border:1px solid #003F7F;padding:8px;">${t.table.name}</th>
+              <th style="border:1px solid #003F7F;padding:8px;">${t.table.quantity}</th>
+              <th style="border:1px solid #003F7F;padding:8px;">${t.table.cost}</th>
+              <th style="border:1px solid #003F7F;padding:8px;">${t.table.poNo}</th>
+              <th style="border:1px solid #003F7F;padding:8px;">${t.table.usd}</th>
             </tr>
           </thead>
           <tbody>
@@ -408,48 +404,18 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{t.appTitle}</h1>
-            <p className="text-sm text-gray-600 mt-1">
-              Automated PO approval with AI-powered extraction
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {(userRole === 'manager' || userRole === 'admin') && (
-              <Link href="/dashboard">
-                <Button variant="outline" size="sm">
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Dashboard
-                </Button>
-              </Link>
-            )}
-            <Link href="/history">
-              <Button variant="outline" size="sm">
-                <History className="h-4 w-4 mr-2" />
-                {t.viewHistory}
-              </Button>
-            </Link>
-            {userRole === 'admin' && (
-              <Link href="/admin">
-                <Button variant="outline" size="sm">
-                  <Shield className="h-4 w-4 mr-2" />
-                  Admin
-                </Button>
-              </Link>
-            )}
+    <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Navigation Bar */}
+        <NavBar
+          activePage="home"
+          userRole={userRole}
+          userName={userName}
+          onLogout={handleLogout}
+          rightContent={
             <LanguageSwitcher currentLanguage={language} onLanguageChange={setLanguage} />
-            {userName && (
-              <span className="text-sm text-gray-600">{userName}</span>
-            )}
-            <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Error/Success Messages */}
         {error && (
@@ -462,10 +428,10 @@ export default function Home() {
         )}
 
         {success && (
-          <Card className="mb-6 border-green-500 bg-green-50">
+          <Card className="mb-6 border-icp-success bg-icp-success-light">
             <CardContent className="flex items-center gap-3 p-4">
-              <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
-              <p className="text-sm text-green-700">{success}</p>
+              <CheckCircle className="h-5 w-5 text-icp-success flex-shrink-0" />
+              <p className="text-sm text-icp-success">{success}</p>
             </CardContent>
           </Card>
         )}
@@ -483,7 +449,7 @@ export default function Home() {
                   <Button
                     variant={uploadMethod === 'sharepoint' ? 'default' : 'outline'}
                     onClick={() => setUploadMethod('sharepoint')}
-                    className="flex-1"
+                    className={`flex-1 ${uploadMethod === 'sharepoint' ? 'bg-icp-primary hover:bg-icp-primary-dark' : ''}`}
                   >
                     <FolderOpen className="h-4 w-4 mr-2" />
                     {t.sharePointUpload}
@@ -491,7 +457,7 @@ export default function Home() {
                   <Button
                     variant={uploadMethod === 'local' ? 'default' : 'outline'}
                     onClick={() => setUploadMethod('local')}
-                    className="flex-1"
+                    className={`flex-1 ${uploadMethod === 'local' ? 'bg-icp-primary hover:bg-icp-primary-dark' : ''}`}
                   >
                     <Upload className="h-4 w-4 mr-2" />
                     {t.localUpload}
@@ -635,7 +601,7 @@ export default function Home() {
               <Button
                 onClick={handleSendEmail}
                 disabled={isSending || items.length === 0}
-                className="flex-1"
+                className="flex-1 bg-icp-primary hover:bg-icp-primary-dark"
               >
                 {isSending ? (
                   <>
@@ -657,7 +623,7 @@ export default function Home() {
         {step === 'sent' && (
           <Card className="text-center">
             <CardContent className="p-12">
-              <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+              <CheckCircle className="h-16 w-16 text-icp-success mx-auto mb-4" />
               <h2 className="text-2xl font-bold mb-2">Email Sent Successfully!</h2>
               <p className="text-muted-foreground mb-6">
                 Your PO approval request has been sent to {emailTo}
@@ -673,13 +639,7 @@ export default function Home() {
                 )}
               </p>
               <div className="flex gap-4 justify-center">
-                <Button onClick={handleReset}>Process Another PO</Button>
-                {/* <Link href="/history">
-                  <Button variant="outline">
-                    <History className="h-4 w-4 mr-2" />
-                    View History
-                  </Button>
-                </Link> */}
+                <Button onClick={handleReset} className="bg-icp-primary hover:bg-icp-primary-dark">Process Another PO</Button>
               </div>
             </CardContent>
           </Card>

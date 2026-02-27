@@ -51,6 +51,34 @@ export interface PORecord {
   approvedFolderPath?: string // Path ที่จะย้ายไฟล์ไปเมื่อ approve
   createdBy?: string // Email ของคนที่สร้าง
   lastReminderSent?: string // วันที่ส่ง reminder ล่าสุด
+  // Multi-level approval
+  currentApprovalLevel?: number
+  maxApprovalLevel?: number
+}
+
+// Approval level configuration (admin settings)
+export interface ApprovalLevelConfig {
+  id: string
+  level: number          // 1, 2, or 3
+  levelName: string
+  maxAmount: number | null // มูลค่าสูงสุดที่ level นี้อนุมัติได้ (null = ไม่จำกัด)
+  approverEmail: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+// Per-PO approval step record
+export interface ApprovalStep {
+  id: string
+  poRecordId: string
+  level: number
+  approverEmail: string
+  status: ApprovalStatus
+  approvalToken?: string
+  comment?: string
+  actedAt?: string
+  createdAt: string
 }
 
 export interface ExtractResponse {

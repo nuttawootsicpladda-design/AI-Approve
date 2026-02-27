@@ -12,8 +12,17 @@ import {
   AlertCircle,
   FileText,
   Clock,
+  ArrowRight,
 } from 'lucide-react'
 import { POItem } from '@/lib/types'
+
+interface ApprovalStep {
+  level: number
+  approverEmail: string
+  status: 'pending' | 'approved' | 'rejected'
+  comment?: string
+  actedAt?: string
+}
 
 interface ApprovalData {
   id: string
@@ -21,10 +30,17 @@ interface ApprovalData {
   items: POItem[]
   total: number
   sentAt: string
+  sentFrom: string
+  createdBy?: string
   approvalStatus: 'pending' | 'approved' | 'rejected'
   approvedAt?: string
   rejectedAt?: string
   approvalComment?: string
+  currentApprovalLevel: number
+  maxApprovalLevel: number
+  currentLevel: number
+  stepStatus: string
+  steps: ApprovalStep[]
 }
 
 type PageStatus = 'loading' | 'ready' | 'processing' | 'success' | 'error' | 'already_processed'
@@ -42,6 +58,7 @@ function ApproveContent() {
     actionParam === 'approve' || actionParam === 'reject' ? actionParam : null
   )
   const [resultAction, setResultAction] = useState<'approve' | 'reject' | null>(null)
+  const [resultData, setResultData] = useState<{ isFinalized?: boolean; nextLevel?: number; nextLevelName?: string } | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
 
   // Fetch approval data
@@ -65,12 +82,15 @@ function ApproveContent() {
 
         setData(result.data)
 
-        if (result.data.approvalStatus !== 'pending') {
+        // Check if this specific step is already processed
+        if (result.data.stepStatus !== 'pending') {
+          setStatus('already_processed')
+        } else if (result.data.approvalStatus !== 'pending') {
           setStatus('already_processed')
         } else {
           setStatus('ready')
         }
-      } catch (err) {
+      } catch {
         setError('Failed to load approval data')
         setStatus('error')
       }
@@ -87,9 +107,7 @@ function ApproveContent() {
     try {
       const response = await fetch('/api/approval', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token,
           action,
@@ -107,15 +125,15 @@ function ApproveContent() {
       }
 
       setResultAction(action)
+      setResultData(result.data)
       setStatus('success')
-    } catch (err) {
+    } catch {
       setError('Failed to process approval')
       setStatus('error')
       setIsProcessing(false)
     }
   }
 
-  // Format date
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('th-TH', {
       year: 'numeric',
@@ -126,10 +144,65 @@ function ApproveContent() {
     })
   }
 
+  // Timeline component
+  const renderTimeline = () => {
+    if (!data || data.maxApprovalLevel <= 1) return null
+
+    return (
+      <div className="flex items-center justify-center gap-2 flex-wrap">
+        {Array.from({ length: data.maxApprovalLevel }, (_, i) => {
+          const level = i + 1
+          const step = data.steps.find(s => s.level === level)
+          const isCurrent = level === data.currentLevel
+
+          let bgColor = 'bg-gray-200 text-icp-grey'
+          let icon = <span className="text-sm font-bold">{level}</span>
+
+          if (step?.status === 'approved') {
+            bgColor = 'bg-icp-success text-white'
+            icon = <CheckCircle className="h-4 w-4" />
+          } else if (step?.status === 'rejected') {
+            bgColor = 'bg-icp-danger text-white'
+            icon = <XCircle className="h-4 w-4" />
+          } else if (isCurrent) {
+            bgColor = 'bg-icp-primary text-white animate-pulse'
+            icon = <Clock className="h-4 w-4" />
+          }
+
+          return (
+            <div key={level} className="flex items-center gap-2">
+              <div className="flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${bgColor}`}>
+                  {icon}
+                </div>
+                <span className="text-xs text-muted-foreground mt-1">
+                  Level {level}
+                </span>
+                {step?.approverEmail && (
+                  <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                    {step.approverEmail.split('@')[0]}
+                  </span>
+                )}
+                {step?.actedAt && (
+                  <span className="text-xs text-icp-success">
+                    {new Date(step.actedAt).toLocaleDateString('th-TH')}
+                  </span>
+                )}
+              </div>
+              {level < data.maxApprovalLevel && (
+                <ArrowRight className="h-4 w-4 text-gray-400 mt-[-20px]" />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   // Loading state
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 flex items-center justify-center">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary mb-4" />
@@ -143,7 +216,7 @@ function ApproveContent() {
   // Error state
   if (status === 'error') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <AlertCircle className="h-16 w-16 text-destructive mx-auto mb-4" />
@@ -157,25 +230,37 @@ function ApproveContent() {
 
   // Already processed state
   if (status === 'already_processed' && data) {
-    const isApproved = data.approvalStatus === 'approved'
+    const isApproved = data.approvalStatus === 'approved' || data.stepStatus === 'approved'
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 flex items-center justify-center p-4">
         <Card className="w-full max-w-lg">
-          <CardContent className="p-8 text-center">
-            {isApproved ? (
-              <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-            ) : (
-              <XCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-            )}
-            <h2 className="text-xl font-bold mb-2">
-              คำขอนี้ได้รับการ{isApproved ? 'อนุมัติ' : 'ปฏิเสธ'}แล้ว
-            </h2>
-            <p className="text-muted-foreground mb-4">
-              เมื่อ {formatDate(isApproved ? data.approvedAt! : data.rejectedAt!)}
-            </p>
-            {data.approvalComment && (
-              <div className="bg-muted p-3 rounded-md text-sm text-left">
-                <strong>หมายเหตุ:</strong> {data.approvalComment}
+          <CardContent className="p-8">
+            <div className="text-center">
+              {isApproved ? (
+                <CheckCircle className="h-16 w-16 text-icp-success mx-auto mb-4" />
+              ) : (
+                <XCircle className="h-16 w-16 text-icp-danger mx-auto mb-4" />
+              )}
+              <h2 className="text-xl font-bold mb-2">
+                คำขอนี้ได้รับการ{isApproved ? 'อนุมัติ' : 'ปฏิเสธ'}แล้ว
+              </h2>
+              {data.approvedAt && (
+                <p className="text-muted-foreground mb-4">เมื่อ {formatDate(data.approvedAt)}</p>
+              )}
+              {data.rejectedAt && (
+                <p className="text-muted-foreground mb-4">เมื่อ {formatDate(data.rejectedAt)}</p>
+              )}
+              {data.approvalComment && (
+                <div className="bg-muted p-3 rounded-md text-sm text-left mb-4">
+                  <strong>หมายเหตุ:</strong> {data.approvalComment}
+                </div>
+              )}
+            </div>
+            {/* Show timeline */}
+            {data.maxApprovalLevel > 1 && (
+              <div className="mt-6 pt-6 border-t">
+                <p className="text-sm font-medium text-center mb-4">ลำดับการอนุมัติ</p>
+                {renderTimeline()}
               </div>
             )}
           </CardContent>
@@ -187,23 +272,33 @@ function ApproveContent() {
   // Success state
   if (status === 'success') {
     const isApproved = resultAction === 'approve'
+    const isFinalized = resultData?.isFinalized
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 flex items-center justify-center p-4">
         <Card className="w-full max-w-lg">
           <CardContent className="p-8 text-center">
             {isApproved ? (
-              <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+              <CheckCircle className="h-16 w-16 text-icp-success mx-auto mb-4" />
             ) : (
-              <XCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+              <XCircle className="h-16 w-16 text-icp-danger mx-auto mb-4" />
             )}
             <h2 className="text-2xl font-bold mb-2">
-              {isApproved ? 'อนุมัติเรียบร้อยแล้ว!' : 'ปฏิเสธเรียบร้อยแล้ว'}
+              {isApproved
+                ? (isFinalized ? 'อนุมัติเรียบร้อยแล้ว! (Final)' : 'อนุมัติเรียบร้อยแล้ว!')
+                : 'ปฏิเสธเรียบร้อยแล้ว'}
             </h2>
             <p className="text-muted-foreground">
               {isApproved
-                ? 'ระบบได้ทำการอนุมัติและแจ้งเตือนผู้ส่งเรียบร้อยแล้ว'
+                ? (isFinalized
+                    ? 'PO ได้รับการอนุมัติครบทุกลำดับขั้นแล้ว ระบบได้แจ้งเตือนผู้ส่งเรียบร้อยแล้ว'
+                    : `ส่งต่อให้ ${resultData?.nextLevelName || `Level ${resultData?.nextLevel}`} พิจารณาต่อแล้ว`)
                 : 'ระบบได้ทำการปฏิเสธและแจ้งเตือนผู้ส่งเรียบร้อยแล้ว'}
             </p>
+            {isApproved && !isFinalized && resultData?.nextLevelName && (
+              <div className="mt-4 p-3 bg-icp-primary-light border border-icp-primary-200 rounded-lg text-sm text-icp-primary">
+                ระบบได้ส่ง email ถึงผู้อนุมัติ {resultData.nextLevelName} (Level {resultData.nextLevel}) แล้ว
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -213,16 +308,26 @@ function ApproveContent() {
   // Ready state - show approval form
   if (status === 'ready' && data) {
     const total = data.items.reduce((sum, item) => sum + Number(item.usd), 0)
+    const isMultiLevel = data.maxApprovalLevel > 1
+    const isLastLevel = data.currentLevel >= data.maxApprovalLevel
+    const approveButtonText = isMultiLevel
+      ? (isLastLevel ? 'อนุมัติ (Final Approve)' : `อนุมัติ (ส่งต่อ Level ${data.currentLevel + 1})`)
+      : 'อนุมัติ (Approve)'
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
+      <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 py-8 px-4">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Header */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="h-6 w-6" />
+                <FileText className="h-6 w-6 text-icp-primary" />
                 คำขออนุมัติ PO
+                {isMultiLevel && (
+                  <span className="ml-2 px-3 py-1 bg-icp-primary-light text-icp-primary rounded-full text-sm font-medium">
+                    Level {data.currentLevel} of {data.maxApprovalLevel}
+                  </span>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -238,7 +343,25 @@ function ApproveContent() {
                     {formatDate(data.sentAt)}
                   </p>
                 </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">ผู้ส่ง</p>
+                  <p className="font-medium">{data.createdBy || data.sentFrom}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">ยอดรวม</p>
+                  <p className="font-bold text-lg text-icp-success">
+                    ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
               </div>
+
+              {/* Timeline */}
+              {isMultiLevel && (
+                <div className="mt-6 pt-4 border-t">
+                  <p className="text-sm font-medium mb-3">ลำดับการอนุมัติ:</p>
+                  {renderTimeline()}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -251,13 +374,13 @@ function ApproveContent() {
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
-                    <tr className="bg-muted">
-                      <th className="border p-2 text-left">ลำดับ</th>
-                      <th className="border p-2 text-left">ชื่อสินค้า</th>
-                      <th className="border p-2 text-right">จำนวน</th>
-                      <th className="border p-2 text-right">ราคา</th>
-                      <th className="border p-2 text-left">เลขที่ PO</th>
-                      <th className="border p-2 text-right">Total</th>
+                    <tr className="bg-icp-primary text-white">
+                      <th className="border border-icp-primary-dark p-2 text-left">ลำดับ</th>
+                      <th className="border border-icp-primary-dark p-2 text-left">ชื่อสินค้า</th>
+                      <th className="border border-icp-primary-dark p-2 text-right">จำนวน</th>
+                      <th className="border border-icp-primary-dark p-2 text-right">ราคา</th>
+                      <th className="border border-icp-primary-dark p-2 text-left">เลขที่ PO</th>
+                      <th className="border border-icp-primary-dark p-2 text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -319,20 +442,19 @@ function ApproveContent() {
                 <Button
                   onClick={() => handleAction('approve')}
                   disabled={isProcessing}
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white py-6 text-lg"
+                  className="flex-1 bg-icp-success hover:bg-icp-success-dark text-white py-6 text-lg"
                 >
                   {isProcessing && selectedAction === 'approve' ? (
                     <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                   ) : (
                     <CheckCircle className="h-5 w-5 mr-2" />
                   )}
-                  อนุมัติ (Approve)
+                  {approveButtonText}
                 </Button>
                 <Button
                   onClick={() => handleAction('reject')}
                   disabled={isProcessing}
-                  variant="destructive"
-                  className="flex-1 py-6 text-lg"
+                  className="flex-1 bg-icp-danger hover:bg-icp-danger/90 text-white py-6 text-lg"
                 >
                   {isProcessing && selectedAction === 'reject' ? (
                     <Loader2 className="h-5 w-5 mr-2 animate-spin" />
@@ -355,7 +477,7 @@ function ApproveContent() {
 // Loading fallback component
 function LoadingFallback() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+    <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 flex items-center justify-center">
       <Card className="w-full max-w-md">
         <CardContent className="p-8 text-center">
           <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary mb-4" />

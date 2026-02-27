@@ -9,6 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        /* shadcn/ui semantic colors */
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -41,6 +42,27 @@ const config: Config = {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+        /* ICP Ladda Brand Colors */
+        icp: {
+          primary: '#004F9F',
+          'primary-light': '#E6F0FA',
+          'primary-100': '#CCE0F5',
+          'primary-200': '#99C1EB',
+          'primary-dark': '#003F7F',
+          cyan: '#33BDC1',
+          'cyan-light': '#E0F7F7',
+          'cyan-dark': '#2AA3A7',
+          success: '#1DAF55',
+          'success-light': '#E8F8EE',
+          'success-dark': '#189A4A',
+          danger: '#E3562B',
+          'danger-light': '#FDECE7',
+          warning: '#F5C518',
+          'warning-light': '#FEF9E7',
+          'warning-dark': '#D9AD14',
+          grey: '#707A8F',
+          black: '#14181F',
         },
       },
       borderRadius: {

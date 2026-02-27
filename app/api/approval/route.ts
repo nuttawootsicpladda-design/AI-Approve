@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApprovalToken } from '@/lib/approval'
-import { getAllRecords, updateRecord } from '@/lib/db'
-import { moveMultipleSharePointFiles, sendEmail } from '@/lib/microsoft-graph'
+import { getRecordById, getApprovalStepByToken, getApprovalStepsForPO } from '@/lib/db'
+import { processApprovalAction } from '@/lib/approval-flow'
 
-// GET: Get approval status
+// GET: Get approval status + level info
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const token = searchParams.get('token')
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const { valid, recordId, expired } = verifyApprovalToken(token)
+  const { valid, recordId, level, expired } = verifyApprovalToken(token)
 
   if (!valid) {
     return NextResponse.json(
@@ -24,15 +24,17 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const records = await getAllRecords()
-  const record = records.find((r) => r.id === recordId)
-
+  const record = await getRecordById(recordId!)
   if (!record) {
     return NextResponse.json(
       { success: false, error: 'Record not found' },
       { status: 404 }
     )
   }
+
+  // Get approval steps for timeline
+  const steps = await getApprovalStepsForPO(recordId!)
+  const currentStep = steps.find(s => s.approvalToken === token)
 
   return NextResponse.json({
     success: true,
@@ -42,15 +44,28 @@ export async function GET(request: NextRequest) {
       items: record.items,
       total: record.total,
       sentAt: record.sentAt,
+      sentFrom: record.sentFrom,
+      createdBy: record.createdBy,
       approvalStatus: record.approvalStatus || 'pending',
       approvedAt: record.approvedAt,
       rejectedAt: record.rejectedAt,
       approvalComment: record.approvalComment,
+      currentApprovalLevel: record.currentApprovalLevel || 1,
+      maxApprovalLevel: record.maxApprovalLevel || 1,
+      currentLevel: level,
+      stepStatus: currentStep?.status || 'pending',
+      steps: steps.map(s => ({
+        level: s.level,
+        approverEmail: s.approverEmail,
+        status: s.status,
+        comment: s.comment,
+        actedAt: s.actedAt,
+      })),
     },
   })
 }
 
-// POST: Process approval action
+// POST: Process approval action (from email link)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -70,7 +85,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { valid, recordId, expired } = verifyApprovalToken(token)
+    const { valid, recordId, level, expired } = verifyApprovalToken(token)
 
     if (!valid) {
       return NextResponse.json(
@@ -79,142 +94,126 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const records = await getAllRecords()
-    const record = records.find((r) => r.id === recordId)
+    // Find the approval step by token
+    const step = await getApprovalStepByToken(token)
 
-    if (!record) {
-      return NextResponse.json(
-        { success: false, error: 'Record not found' },
-        { status: 404 }
-      )
-    }
-
-    // Check if already processed
-    if (record.approvalStatus && record.approvalStatus !== 'pending') {
-      return NextResponse.json(
-        { success: false, error: `This request has already been ${record.approvalStatus}` },
-        { status: 400 }
-      )
-    }
-
-    const now = new Date().toISOString()
-
-    // Prepare updates
-    const updates: Partial<typeof record> = {}
-
-    if (action === 'approve') {
-      updates.approvalStatus = 'approved'
-      updates.approvedAt = now
-      updates.approvalComment = comment
-
-      // Move files to approved folder if SharePoint files exist
-      if (record.sharePointFiles && record.sharePointFiles.length > 0 && record.approvedFolderPath) {
-        try {
-          const moveResult = await moveMultipleSharePointFiles(
-            record.sharePointFiles.map((f) => ({
-              driveId: f.driveId,
-              fileId: f.fileId,
-            })),
-            record.approvedFolderPath
-          )
-
-          if (!moveResult.success) {
-            console.error('Some files failed to move:', moveResult.errors)
-          }
-        } catch (error) {
-          console.error('Error moving files:', error)
-          // Continue with approval even if file move fails
-        }
-      }
-    } else {
-      updates.approvalStatus = 'rejected'
-      updates.rejectedAt = now
-      updates.approvalComment = comment
-    }
-
-    // Update record in KV
-    await updateRecord(recordId!, updates)
-
-    // Send notification email to everyone (Reply All: sender + recipient + CC)
-    try {
-      const statusText = action === 'approve' ? 'อนุมัติ (Approved)' : 'ไม่อนุมัติ (Rejected)'
-      const statusColor = action === 'approve' ? '#22c55e' : '#ef4444'
-
-      const notificationHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: ${statusColor}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0; font-size: 24px;">PO ${statusText}</h1>
-          </div>
-          <div style="background-color: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
-            <p style="margin: 0 0 16px;">คำขออนุมัติ PO ได้รับการตอบกลับแล้ว</p>
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">ไฟล์:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.fileName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">ผู้ส่ง:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.sentFrom}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">ส่งถึง:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.sentTo}</td>
-              </tr>
-              ${record.sentCc ? `
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">CC:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${record.sentCc}</td>
-              </tr>
-              ` : ''}
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">สถานะ:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; color: ${statusColor}; font-weight: bold;">${statusText}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">วันที่:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${new Date(now).toLocaleString('th-TH')}</td>
-              </tr>
-              ${comment ? `
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">หมายเหตุ:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${comment}</td>
-              </tr>
-              ` : ''}
-            </table>
-            ${action === 'approve' && record.sharePointFiles && record.approvedFolderPath ? `
-            <p style="margin: 0; font-size: 14px; color: #6b7280;">
-              ไฟล์ได้ถูกย้ายไปยัง: ${record.approvedFolderPath}
-            </p>
-            ` : ''}
-          </div>
-        </div>
-      `
-
-      // Build Reply All recipients: sender gets 'to', original recipient + CC go to 'cc'
-      const replyAllCc = [record.sentTo]
-      if (record.sentCc) {
-        replyAllCc.push(record.sentCc)
+    if (step) {
+      // Multi-level flow: use processApprovalAction
+      if (step.status !== 'pending') {
+        return NextResponse.json(
+          { success: false, error: `This approval step has already been ${step.status}` },
+          { status: 400 }
+        )
       }
 
-      await sendEmail({
-        to: record.sentFrom,
-        cc: replyAllCc.join(', '),
-        subject: `Re: PO ${statusText} - ${record.fileName}`,
-        htmlBody: notificationHtml,
-      })
-    } catch (error) {
-      console.error('Error sending notification email:', error)
-      // Continue even if notification fails
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: {
+      const result = await processApprovalAction({
+        poRecordId: step.poRecordId,
+        stepId: step.id,
         action,
-        recordId,
-        message: action === 'approve' ? 'PO has been approved' : 'PO has been rejected',
-      },
-    })
+        comment,
+      })
+
+      if (!result.success) {
+        return NextResponse.json(
+          { success: false, error: result.error },
+          { status: 400 }
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          action,
+          recordId: step.poRecordId,
+          level,
+          isFinalized: result.isFinalized,
+          nextLevel: result.nextLevel,
+          nextLevelName: result.nextLevelName,
+          message: action === 'approve'
+            ? (result.isFinalized
+                ? 'PO has been approved (final)'
+                : `PO approved at Level ${level}, routed to ${result.nextLevelName}`)
+            : 'PO has been rejected',
+        },
+      })
+    } else {
+      // Fallback: legacy single-level (no approval_steps record)
+      const record = await getRecordById(recordId!)
+      if (!record) {
+        return NextResponse.json(
+          { success: false, error: 'Record not found' },
+          { status: 404 }
+        )
+      }
+
+      if (record.approvalStatus !== 'pending') {
+        return NextResponse.json(
+          { success: false, error: `This request has already been ${record.approvalStatus}` },
+          { status: 400 }
+        )
+      }
+
+      const { updateRecord } = await import('@/lib/db')
+      const { moveMultipleSharePointFiles, sendEmail } = await import('@/lib/microsoft-graph')
+      const now = new Date().toISOString()
+
+      if (action === 'approve') {
+        await updateRecord(recordId!, {
+          approvalStatus: 'approved',
+          approvedAt: now,
+          approvalComment: comment,
+        })
+
+        if (record.sharePointFiles && record.sharePointFiles.length > 0 && record.approvedFolderPath) {
+          try {
+            await moveMultipleSharePointFiles(
+              record.sharePointFiles.map(f => ({ driveId: f.driveId, fileId: f.fileId })),
+              record.approvedFolderPath
+            )
+          } catch (error) {
+            console.error('Error moving files:', error)
+          }
+        }
+      } else {
+        await updateRecord(recordId!, {
+          approvalStatus: 'rejected',
+          rejectedAt: now,
+          approvalComment: comment,
+        })
+      }
+
+      // Send notification email
+      try {
+        const statusText = action === 'approve' ? 'อนุมัติ (Approved)' : 'ไม่อนุมัติ (Rejected)'
+        await sendEmail({
+          to: record.createdBy || record.sentFrom,
+          subject: `Re: PO ${statusText} - ${record.fileName}`,
+          htmlBody: `
+            <div style="font-family:Arial,sans-serif; max-width:600px; margin:0 auto;">
+              <div style="background:${action === 'approve' ? '#22c55e' : '#ef4444'}; color:white; padding:16px; text-align:center; border-radius:8px 8px 0 0;">
+                <h2 style="margin:0;">PO ${statusText}</h2>
+              </div>
+              <div style="padding:20px; border:1px solid #e5e7eb; border-top:none; border-radius:0 0 8px 8px;">
+                <p>PO <strong>${record.fileName}</strong> ได้รับการ${statusText}แล้ว</p>
+                ${comment ? `<p>หมายเหตุ: ${comment}</p>` : ''}
+              </div>
+            </div>
+          `,
+        })
+      } catch (error) {
+        console.error('Error sending notification email:', error)
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          action,
+          recordId,
+          isFinalized: true,
+          message: action === 'approve' ? 'PO has been approved' : 'PO has been rejected',
+        },
+      })
+    }
   } catch (error: unknown) {
     console.error('Approval error:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'

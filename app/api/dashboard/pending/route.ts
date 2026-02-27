@@ -1,24 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPendingRecords } from '@/lib/db'
+import { getPendingRecords, getPendingStepsForApprover } from '@/lib/db'
 
-function getCallerRole(request: NextRequest): string | null {
+function getCallerInfo(request: NextRequest): { role: string; email: string } | null {
   const userInfo = request.cookies.get('user-info')
   if (!userInfo) return null
   try {
     const parsed = JSON.parse(decodeURIComponent(userInfo.value))
-    return parsed.role || null
+    return { role: parsed.role || '', email: parsed.email || '' }
   } catch {
     return null
   }
 }
 
 export async function GET(request: NextRequest) {
-  const role = getCallerRole(request)
-  if (role !== 'manager' && role !== 'admin') {
+  const caller = getCallerInfo(request)
+  if (!caller || (caller.role !== 'manager' && caller.role !== 'admin')) {
     return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
   }
 
   try {
+    // Try multi-level: get pending steps assigned to this approver
+    const pendingSteps = await getPendingStepsForApprover(caller.email)
+
+    if (pendingSteps.length > 0) {
+      return NextResponse.json({
+        success: true,
+        data: pendingSteps.map(s => ({
+          id: s.poRecordId,
+          stepId: s.id,
+          level: s.level,
+          approverEmail: s.approverEmail,
+          fileName: s.poRecord?.fileName,
+          sentTo: s.poRecord?.sentTo,
+          sentFrom: s.poRecord?.sentFrom,
+          total: s.poRecord?.total,
+          sentAt: s.poRecord?.sentAt,
+          createdBy: s.poRecord?.createdBy,
+          items: s.poRecord?.items,
+          currentApprovalLevel: s.poRecord?.currentApprovalLevel || 1,
+          maxApprovalLevel: s.poRecord?.maxApprovalLevel || 1,
+        })),
+      })
+    }
+
+    // Fallback: if no steps found (no levels configured), use legacy getPendingRecords
+    // Admin sees all pending, manager sees all pending (legacy behavior)
     const records = await getPendingRecords()
     return NextResponse.json({
       success: true,
@@ -31,6 +57,8 @@ export async function GET(request: NextRequest) {
         sentAt: r.sentAt,
         createdBy: r.createdBy,
         items: r.items,
+        currentApprovalLevel: r.currentApprovalLevel || 1,
+        maxApprovalLevel: r.maxApprovalLevel || 1,
       })),
     })
   } catch (error: any) {
