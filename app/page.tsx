@@ -44,6 +44,7 @@ export default function Home() {
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [sentToEmail, setSentToEmail] = useState('')
 
   // File attachment state (single file for local upload)
   const [fileAttachment, setFileAttachment] = useState<FileAttachment | null>(null)
@@ -76,8 +77,6 @@ export default function Home() {
   }, [])
 
   // Email settings
-  const [emailTo, setEmailTo] = useState('pitchaya.n@icpladda.com')
-  const [emailCc, setEmailCc] = useState('')
   const [emailSubject, setEmailSubject] = useState(
     `${translations[language].email.subject} - ${format(new Date(), 'dd/MM/yyyy')}`
   )
@@ -323,8 +322,6 @@ export default function Home() {
 
       // Build request body
       const requestBody = {
-        to: emailTo,
-        cc: emailCc || undefined,
         subject: emailSubject,
         htmlBody,
         items,
@@ -358,6 +355,7 @@ export default function Home() {
         throw new Error(result.error || 'Failed to send email')
       }
 
+      setSentToEmail(result.sentTo || '')
       setStep('sent')
       setSuccess(t.messages.emailSent)
 
@@ -371,7 +369,7 @@ export default function Home() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               token: lineToken,
-              message: `\n📧 ส่ง PO สำเร็จ!\n📁 ไฟล์: ${fileName}\n👤 ถึง: ${emailTo}\n💰 ยอดรวม: $${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+              message: `\n📧 ส่ง PO สำเร็จ!\n📁 ไฟล์: ${fileName}\n💰 ยอดรวม: $${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
             }),
           })
         } catch (lineErr) {
@@ -396,6 +394,7 @@ export default function Home() {
     setFileAttachments([])
     setAttachToEmail(true)
     setSharePointFiles([])
+    setSentToEmail('')
   }
 
   const handleLogout = async () => {
@@ -528,16 +527,10 @@ export default function Home() {
             </Card>
 
             <EmailPreview
-              to={emailTo}
-              cc={emailCc}
               subject={emailSubject}
               items={items}
-              onToChange={setEmailTo}
-              onCcChange={setEmailCc}
               onSubjectChange={setEmailSubject}
               translations={{
-                recipient: t.email.recipient,
-                cc: 'CC',
                 subject_label: t.email.subject_label,
                 greeting: t.email.greeting,
                 body: t.email.body,
@@ -626,7 +619,7 @@ export default function Home() {
               <CheckCircle className="h-16 w-16 text-icp-success mx-auto mb-4" />
               <h2 className="text-2xl font-bold mb-2">Email Sent Successfully!</h2>
               <p className="text-muted-foreground mb-6">
-                Your PO approval request has been sent to {emailTo}
+                Your PO approval request has been sent to {sentToEmail}
                 {attachToEmail && (fileAttachment || fileAttachments.length > 0) && (
                   <>
                     <br />

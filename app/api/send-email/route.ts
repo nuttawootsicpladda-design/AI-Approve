@@ -14,8 +14,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      to,
-      cc,
       subject,
       htmlBody,
       items,
@@ -27,7 +25,7 @@ export async function POST(request: NextRequest) {
       createdBy,
     } = body
 
-    if (!to || !subject || !htmlBody) {
+    if (!subject || !htmlBody) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields' },
         { status: 400 }
@@ -40,14 +38,27 @@ export async function POST(request: NextRequest) {
       return sum + (isNaN(usd) ? 0 : usd)
     }, 0)
 
+    // Initialize approval to determine who to send to
+    // We need to do this before saving so we know the approver email
+    const { getActiveApprovalLevels } = await import('@/lib/db')
+    const activeLevels = await getActiveApprovalLevels()
+
+    if (activeLevels.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'ยังไม่ได้ตั้งค่าระดับการอนุมัติ กรุณาตั้งค่าใน Admin ก่อน' },
+        { status: 400 }
+      )
+    }
+
+    const level1Approver = activeLevels[0].approverEmail
+
     // Save to history first to get record ID
-    console.log('Saving record to database...', { fileName, to, cc, total })
+    console.log('Saving record to database...', { fileName, total })
     const record = await saveRecord({
       fileName: fileName || 'Unknown',
       items,
       total,
-      sentTo: to,
-      sentCc: cc || undefined,
+      sentTo: level1Approver,
       sentFrom: senderEmail || process.env.EMAIL_SENDER || '',
       sentAt: new Date().toISOString(),
       status: 'sent',
@@ -58,14 +69,13 @@ export async function POST(request: NextRequest) {
     })
     console.log('Record saved successfully:', record.id)
 
-    // Try multi-level approval initialization
+    // Initialize multi-level approval
     const approvalInit = await initializeApproval(record.id, total)
 
     let approvalButtonsHtml: string
-    let emailTo = to
+    let emailTo: string
 
     if (approvalInit) {
-      // Multi-level: use configured approver
       emailTo = approvalInit.approverEmail
       const maxLevel = approvalInit.maxLevel
 
@@ -75,7 +85,8 @@ export async function POST(request: NextRequest) {
         levelText: `การอนุมัติ Level 1 of ${maxLevel} (${approvalInit.levelName})`,
       })
     } else {
-      // Fallback: no levels configured — use original single-level behavior
+      // Fallback: use level 1 approver directly
+      emailTo = level1Approver
       const token = generateApprovalToken(record.id, 1)
       const approveUrl = getApprovalUrl(token, 'approve')
       const rejectUrl = getApprovalUrl(token, 'reject')
@@ -96,10 +107,9 @@ export async function POST(request: NextRequest) {
       </div>
     `)
 
-    // Send email to the approver (or original recipient if no levels configured)
+    // Send email to the configured approver
     await sendEmail({
       to: emailTo,
-      cc,
       subject,
       htmlBody: fullHtmlBody,
       attachments,
@@ -108,6 +118,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       recordId: record.id,
+      sentTo: emailTo,
     })
   } catch (error: any) {
     console.error('Send email API error:', error)

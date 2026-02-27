@@ -29,7 +29,7 @@ interface NavBarProps {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Send PO', href: '/', icon: <Send className="h-4 w-4" />, key: 'home' },
+  { label: 'Send PO', href: '/', icon: <Send className="h-4 w-4" />, key: 'home', roles: ['employee', 'admin'] },
   { label: 'Approvals', href: '/approvals', icon: <CheckCircle className="h-4 w-4" />, key: 'approvals', roles: ['manager', 'admin'] },
   { label: 'Dashboard', href: '/dashboard', icon: <BarChart3 className="h-4 w-4" />, key: 'dashboard', roles: ['manager', 'admin'] },
   { label: 'History', href: '/history', icon: <History className="h-4 w-4" />, key: 'history' },
