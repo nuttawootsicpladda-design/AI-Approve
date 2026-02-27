@@ -13,6 +13,17 @@ export interface POData {
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
 
+export type UserRole = 'employee' | 'manager' | 'admin'
+
+export interface User {
+  id: string
+  email: string
+  name: string
+  role: UserRole
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SharePointFileInfo {
   driveId: string
   fileId: string
@@ -38,6 +49,8 @@ export interface PORecord {
   // SharePoint file info for moving files
   sharePointFiles?: SharePointFileInfo[]
   approvedFolderPath?: string // Path ที่จะย้ายไฟล์ไปเมื่อ approve
+  createdBy?: string // Email ของคนที่สร้าง
+  lastReminderSent?: string // วันที่ส่ง reminder ล่าสุด
 }
 
 export interface ExtractResponse {

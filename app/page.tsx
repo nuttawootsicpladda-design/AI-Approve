@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { FileUpload } from '@/components/FileUpload'
 import { POTable } from '@/components/POTable'
 import { EmailPreview } from '@/components/EmailPreview'
@@ -19,9 +19,13 @@ import {
   FolderOpen,
   Paperclip,
   LogOut,
+  BarChart3,
+  History,
+  Shield,
 } from 'lucide-react'
-// import Link from 'next/link'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { UserRole } from '@/lib/types'
 import { format } from 'date-fns'
 
 type Step = 'upload' | 'preview' | 'sent'
@@ -54,6 +58,26 @@ export default function Home() {
   // SharePoint file info for moving files on approval
   const [sharePointFiles, setSharePointFiles] = useState<SharePointFileInfo[]>([])
   const [approvedFolderPath, setApprovedFolderPath] = useState('Approved')
+
+  // User info from Microsoft login
+  const [userName, setUserName] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+  const [userRole, setUserRole] = useState<UserRole>('employee')
+
+  useEffect(() => {
+    try {
+      const userInfoCookie = document.cookie
+        .split('; ')
+        .find(c => c.startsWith('user-info='))
+      if (userInfoCookie) {
+        const value = decodeURIComponent(userInfoCookie.split('=')[1])
+        const info = JSON.parse(value)
+        setUserName(info.name || info.email || '')
+        setUserEmail(info.email || '')
+        setUserRole(info.role || 'employee')
+      }
+    } catch {}
+  }, [])
 
   // Email settings
   const [emailTo, setEmailTo] = useState('pitchaya.n@icpladda.com')
@@ -314,6 +338,7 @@ export default function Home() {
         sharePointFiles: sharePointFiles.length > 0 ? sharePointFiles : undefined,
         approvedFolderPath: sharePointFiles.length > 0 ? approvedFolderPath : undefined,
         senderEmail: 'procurement.noreply@icpladda.com',
+        createdBy: userEmail,
       }
 
       const response = await fetch('/api/send-email', {
@@ -394,20 +419,32 @@ export default function Home() {
             </p>
           </div>
           <div className="flex items-center gap-4">
-            {/* Dashboard and History buttons - Hidden */}
-            {/* <Link href="/dashboard">
-              <Button variant="outline">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Dashboard
-              </Button>
-            </Link>
+            {(userRole === 'manager' || userRole === 'admin') && (
+              <Link href="/dashboard">
+                <Button variant="outline" size="sm">
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                  Dashboard
+                </Button>
+              </Link>
+            )}
             <Link href="/history">
-              <Button variant="outline">
+              <Button variant="outline" size="sm">
                 <History className="h-4 w-4 mr-2" />
                 {t.viewHistory}
               </Button>
-            </Link> */}
+            </Link>
+            {userRole === 'admin' && (
+              <Link href="/admin">
+                <Button variant="outline" size="sm">
+                  <Shield className="h-4 w-4 mr-2" />
+                  Admin
+                </Button>
+              </Link>
+            )}
             <LanguageSwitcher currentLanguage={language} onLanguageChange={setLanguage} />
+            {userName && (
+              <span className="text-sm text-gray-600">{userName}</span>
+            )}
             <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout">
               <LogOut className="h-4 w-4" />
             </Button>

@@ -14,14 +14,20 @@ import {
   Bell,
   Calendar,
   Send,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/utils'
+import { POItem } from '@/lib/types'
 
 interface DashboardData {
   summary: {
     totalPOs: number
+    pendingCount: number
     totalAmount: number
     thisMonthCount: number
     thisMonthAmount: number
@@ -47,6 +53,17 @@ interface DashboardData {
   }[]
 }
 
+interface PendingRecord {
+  id: string
+  fileName: string
+  sentTo: string
+  sentFrom: string
+  total: number
+  sentAt: string
+  createdBy?: string
+  items: POItem[]
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [data, setData] = useState<DashboardData | null>(null)
@@ -55,6 +72,13 @@ export default function DashboardPage() {
   const [showLineNotify, setShowLineNotify] = useState(false)
   const [lineToken, setLineToken] = useState('')
   const [isSavingToken, setIsSavingToken] = useState(false)
+
+  // Pending approval state
+  const [pendingRecords, setPendingRecords] = useState<PendingRecord[]>([])
+  const [pendingLoading, setPendingLoading] = useState(true)
+  const [processingId, setProcessingId] = useState<string | null>(null)
+  const [approvalComment, setApprovalComment] = useState('')
+  const [showCommentFor, setShowCommentFor] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null)
 
   const fetchDashboard = async () => {
     setIsLoading(true)
@@ -67,21 +91,65 @@ export default function DashboardPage() {
       } else {
         setError(result.error)
       }
-    } catch (err) {
+    } catch {
       setError('Failed to load dashboard')
     } finally {
       setIsLoading(false)
     }
   }
 
+  const fetchPending = async () => {
+    setPendingLoading(true)
+    try {
+      const response = await fetch('/api/dashboard/pending')
+      const result = await response.json()
+      if (result.success) {
+        setPendingRecords(result.data)
+      }
+    } catch {
+      console.error('Failed to fetch pending records')
+    } finally {
+      setPendingLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchDashboard()
-    // Load saved Line token
+    fetchPending()
     const savedToken = localStorage.getItem('line-notify-token')
     if (savedToken) {
       setLineToken(savedToken)
     }
   }, [])
+
+  const handleApprovalAction = async (recordId: string, action: 'approve' | 'reject') => {
+    setProcessingId(recordId)
+    try {
+      const response = await fetch('/api/dashboard/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, action, comment: approvalComment }),
+      })
+      const result = await response.json()
+      if (result.success) {
+        setPendingRecords(prev => prev.filter(r => r.id !== recordId))
+        setShowCommentFor(null)
+        setApprovalComment('')
+        fetchDashboard()
+      } else {
+        alert(result.error || 'Failed to process approval')
+      }
+    } catch {
+      alert('Failed to process approval')
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const openCommentDialog = (id: string, action: 'approve' | 'reject') => {
+    setShowCommentFor({ id, action })
+    setApprovalComment('')
+  }
 
   const saveLineToken = () => {
     setIsSavingToken(true)
@@ -103,7 +171,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           token: lineToken,
-          message: '🔔 ทดสอบการแจ้งเตือนจาก PO Approval System สำเร็จ!',
+          message: 'ทดสอบการแจ้งเตือนจาก PO Approval System สำเร็จ!',
         }),
       })
       const result = await response.json()
@@ -112,7 +180,7 @@ export default function DashboardPage() {
       } else {
         alert('ส่งไม่สำเร็จ: ' + result.error)
       }
-    } catch (err) {
+    } catch {
       alert('เกิดข้อผิดพลาด')
     }
   }
@@ -135,6 +203,11 @@ export default function DashboardPage() {
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <BarChart3 className="h-7 w-7 text-primary" />
                 Dashboard
+                {pendingRecords.length > 0 && (
+                  <span className="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-red-500 rounded-full">
+                    {pendingRecords.length}
+                  </span>
+                )}
               </h1>
               <p className="text-muted-foreground">ภาพรวมการส่ง PO</p>
             </div>
@@ -148,7 +221,7 @@ export default function DashboardPage() {
               <Bell className="h-4 w-4" />
               Line Notify
             </Button>
-            <Button variant="outline" onClick={fetchDashboard} disabled={isLoading}>
+            <Button variant="outline" onClick={() => { fetchDashboard(); fetchPending() }} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
@@ -192,6 +265,121 @@ export default function DashboardPage() {
                 <Button variant="outline" onClick={testLineNotify}>
                   ทดสอบส่งข้อความ
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Pending Approvals Section */}
+        {!pendingLoading && pendingRecords.length > 0 && (
+          <Card className="border-2 border-yellow-300 bg-yellow-50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-yellow-800">
+                <Clock className="h-5 w-5" />
+                PO รอการอนุมัติ ({pendingRecords.length} รายการ)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {pendingRecords.map(record => (
+                  <div key={record.id} className="bg-white rounded-lg border p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                          <span className="font-semibold text-sm truncate">{record.fileName}</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground">
+                          <div>
+                            <span className="font-medium">ส่งถึง:</span> {record.sentTo}
+                          </div>
+                          <div>
+                            <span className="font-medium">ผู้ส่ง:</span> {record.createdBy || record.sentFrom}
+                          </div>
+                          <div>
+                            <span className="font-medium">ยอดรวม:</span>{' '}
+                            <span className="text-green-700 font-bold">{formatCurrency(record.total)}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium">วันที่:</span>{' '}
+                            {new Date(record.sentAt).toLocaleDateString('th-TH', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        {processingId === record.id ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : showCommentFor?.id === record.id ? null : (
+                          <>
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              onClick={() => openCommentDialog(record.id, 'approve')}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              อนุมัติ
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => openCommentDialog(record.id, 'reject')}
+                            >
+                              <XCircle className="h-4 w-4 mr-1" />
+                              ไม่อนุมัติ
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Comment Dialog */}
+                    {showCommentFor?.id === record.id && (
+                      <div className="mt-3 pt-3 border-t">
+                        <label className="text-sm font-medium block mb-1">
+                          หมายเหตุ (ไม่บังคับ)
+                        </label>
+                        <textarea
+                          value={approvalComment}
+                          onChange={(e) => setApprovalComment(e.target.value)}
+                          placeholder="ใส่หมายเหตุ..."
+                          className="w-full p-2 border rounded-md text-sm mb-2"
+                          rows={2}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className={showCommentFor.action === 'approve' ? 'bg-green-600 hover:bg-green-700' : ''}
+                            variant={showCommentFor.action === 'reject' ? 'destructive' : 'default'}
+                            onClick={() => handleApprovalAction(record.id, showCommentFor.action)}
+                            disabled={processingId === record.id}
+                          >
+                            {processingId === record.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                            ) : showCommentFor.action === 'approve' ? (
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                            ) : (
+                              <XCircle className="h-4 w-4 mr-1" />
+                            )}
+                            {showCommentFor.action === 'approve' ? 'ยืนยันอนุมัติ' : 'ยืนยันไม่อนุมัติ'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setShowCommentFor(null); setApprovalComment('') }}
+                          >
+                            ยกเลิก
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>

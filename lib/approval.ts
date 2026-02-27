@@ -49,6 +49,6 @@ export function verifyApprovalToken(token: string): { valid: boolean; recordId?:
 
 // Generate approval URL
 export function getApprovalUrl(token: string, action: 'approve' | 'reject'): string {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   return `${baseUrl}/approve?token=${token}&action=${action}`
 }

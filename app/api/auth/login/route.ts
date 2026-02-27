@@ -1,45 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
 
-// Simple hardcoded credentials
-const VALID_EMAIL = 'procurement.noreply@icpladda.com'
-const VALID_PASSWORD = 'Proc2025'
+export async function GET() {
+  const tenantId = process.env.MICROSOFT_TENANT_ID!
+  const clientId = process.env.MICROSOFT_CLIENT_ID!
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+  const redirectUri = `${baseUrl}/api/auth/callback`
 
-export async function POST(request: NextRequest) {
-  try {
-    const { email, password } = await request.json()
+  const authUrl = new URL(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`
+  )
+  authUrl.searchParams.set('client_id', clientId)
+  authUrl.searchParams.set('response_type', 'code')
+  authUrl.searchParams.set('redirect_uri', redirectUri)
+  authUrl.searchParams.set('scope', 'openid profile email')
+  authUrl.searchParams.set('response_mode', 'query')
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { success: false, error: 'Email and password are required' },
-        { status: 400 }
-      )
-    }
-
-    // Check credentials
-    if (email.toLowerCase() !== VALID_EMAIL.toLowerCase() || password !== VALID_PASSWORD) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid email or password' },
-        { status: 401 }
-      )
-    }
-
-    // Set auth cookie
-    const cookieStore = await cookies()
-    cookieStore.set('auth-token', 'authenticated', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: '/',
-    })
-
-    return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error('Login error:', error)
-    return NextResponse.json(
-      { success: false, error: 'Login failed' },
-      { status: 500 }
-    )
-  }
+  return NextResponse.redirect(authUrl.toString())
 }

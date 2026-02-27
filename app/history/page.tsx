@@ -214,6 +214,12 @@ export default function HistoryPage() {
                             {formatCurrency(selectedRecord.total)}
                           </p>
                         </div>
+                        {selectedRecord.createdBy && (
+                          <div>
+                            <p className="text-muted-foreground mb-1">Created By</p>
+                            <p className="font-medium">{selectedRecord.createdBy}</p>
+                          </div>
+                        )}
                       </div>
 
                       {/* Approval Status */}

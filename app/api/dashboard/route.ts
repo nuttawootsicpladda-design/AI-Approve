@@ -8,6 +8,7 @@ export async function GET() {
 
     // Calculate stats
     const totalPOs = records.length
+    const pendingCount = records.filter(r => r.approvalStatus === 'pending').length
 
     // Calculate total amount (ensure number type)
     const totalAmount = records.reduce((sum, r) => sum + (Number(r.total) || 0), 0)
@@ -91,6 +92,7 @@ export async function GET() {
       data: {
         summary: {
           totalPOs,
+          pendingCount,
           totalAmount,
           thisMonthCount,
           thisMonthAmount,
