@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const tenantId = process.env.MICROSOFT_TENANT_ID!
   const clientId = process.env.MICROSOFT_CLIENT_ID!
   const clientSecret = process.env.MICROSOFT_CLIENT_SECRET!
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const redirectUri = `${baseUrl}/api/auth/callback`
 
   try {

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   const tenantId = process.env.MICROSOFT_TENANT_ID!
   const clientId = process.env.MICROSOFT_CLIENT_ID!
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const redirectUri = `${baseUrl}/api/auth/callback`
 
   const authUrl = new URL(
