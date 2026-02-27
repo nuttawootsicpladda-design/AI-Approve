@@ -46,10 +46,8 @@ export default function Home() {
   const [success, setSuccess] = useState<string | null>(null)
   const [sentToEmail, setSentToEmail] = useState('')
 
-  // File attachment state (single file for local upload)
+  // File attachment state (single file for local upload only)
   const [fileAttachment, setFileAttachment] = useState<FileAttachment | null>(null)
-  // Multiple file attachments for SharePoint
-  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([])
   const [attachToEmail, setAttachToEmail] = useState(true)
 
   // SharePoint file info for moving files on approval
@@ -130,6 +128,7 @@ export default function Home() {
   }
 
   // Handle SharePoint file selection (multiple files)
+  // Only extract PO data — file content fetched server-side when sending email
   const handleSharePointFileSelect = async (
     files: SharePointFile[],
     driveId: string
@@ -142,9 +141,8 @@ export default function Home() {
 
     try {
       const allItems: POItem[] = []
-      const allAttachments: FileAttachment[] = []
 
-      // Process each file sequentially
+      // Process each file sequentially (extract PO data only)
       for (const file of files) {
         const response = await fetch('/api/sharepoint', {
           method: 'POST',
@@ -168,18 +166,11 @@ export default function Home() {
         if (result.data.items && result.data.items.length > 0) {
           allItems.push(...result.data.items)
         }
-
-        // Collect attachments
-        allAttachments.push({
-          name: file.name,
-          content: result.data.fileBase64,
-          contentType: result.data.contentType || 'application/octet-stream',
-        })
       }
 
       setItems(allItems)
 
-      // Store SharePoint file info for moving files on approval
+      // Store SharePoint file info — server will fetch files directly when sending email
       setSharePointFiles(
         files.map((f) => ({
           driveId,
@@ -188,16 +179,6 @@ export default function Home() {
           webUrl: f.webUrl,
         }))
       )
-
-      // Store all files as attachments (we'll use the first one for single attachment display)
-      // For multiple files, store all attachments
-      if (allAttachments.length === 1) {
-        setFileAttachment(allAttachments[0])
-      } else if (allAttachments.length > 1) {
-        // Store multiple attachments - we'll need to update the state type
-        setFileAttachments(allAttachments)
-        setFileAttachment(null) // Clear single attachment
-      }
 
       setStep('preview')
       setSuccess(
@@ -299,18 +280,13 @@ export default function Home() {
         ${htmlTable}
       `
 
-      // Prepare attachments (support both single and multiple files)
+      // Prepare attachments — only for local files
+      // SharePoint files are fetched server-side to avoid 413 payload too large
       let attachments: { name: string; content: string }[] | undefined
 
-      if (attachToEmail) {
-        if (fileAttachments.length > 0) {
-          // Multiple files from SharePoint
-          attachments = fileAttachments.map((att) => ({
-            name: att.name,
-            content: att.content,
-          }))
-        } else if (fileAttachment) {
-          // Single file from local upload
+      if (attachToEmail && sharePointFiles.length === 0) {
+        // Local file upload only — send base64 in request body
+        if (fileAttachment) {
           attachments = [
             {
               name: fileAttachment.name,
@@ -327,8 +303,8 @@ export default function Home() {
         items,
         fileName,
         attachments,
-        // Include SharePoint file info for moving files on approval
-        sharePointFiles: sharePointFiles.length > 0 ? sharePointFiles : undefined,
+        // SharePoint file info — server will fetch files directly (no base64 in payload)
+        sharePointFiles: sharePointFiles.length > 0 && attachToEmail ? sharePointFiles : undefined,
         approvedFolderPath: sharePointFiles.length > 0 ? approvedFolderPath : undefined,
         senderEmail: 'procurement.noreply@icpladda.com',
         createdBy: userEmail,
@@ -391,7 +367,6 @@ export default function Home() {
     setError(null)
     setSuccess(null)
     setFileAttachment(null)
-    setFileAttachments([])
     setAttachToEmail(true)
     setSharePointFiles([])
     setSentToEmail('')
@@ -539,7 +514,7 @@ export default function Home() {
             />
 
             {/* Attachment Option */}
-            {(fileAttachment || fileAttachments.length > 0) && (
+            {(fileAttachment || sharePointFiles.length > 0) && (
               <Card>
                 <CardContent className="p-4">
                   <label className="flex items-center gap-3 cursor-pointer">
@@ -553,8 +528,8 @@ export default function Home() {
                     <span className="text-sm">
                       {t.email.attachFile}:{' '}
                       <strong>
-                        {fileAttachments.length > 0
-                          ? `${fileAttachments.length} files (${fileAttachments.map((f) => f.name).join(', ')})`
+                        {sharePointFiles.length > 0
+                          ? `${sharePointFiles.length} files (${sharePointFiles.map((f) => f.fileName).join(', ')})`
                           : fileAttachment?.name}
                       </strong>
                     </span>
@@ -620,12 +595,12 @@ export default function Home() {
               <h2 className="text-2xl font-bold mb-2">Email Sent Successfully!</h2>
               <p className="text-muted-foreground mb-6">
                 Your PO approval request has been sent to {sentToEmail}
-                {attachToEmail && (fileAttachment || fileAttachments.length > 0) && (
+                {attachToEmail && (fileAttachment || sharePointFiles.length > 0) && (
                   <>
                     <br />
                     <span className="text-sm">
-                      (with {fileAttachments.length > 0
-                        ? `${fileAttachments.length} attachments: ${fileAttachments.map((f) => f.name).join(', ')}`
+                      (with {sharePointFiles.length > 0
+                        ? `${sharePointFiles.length} attachments: ${sharePointFiles.map((f) => f.fileName).join(', ')}`
                         : `attachment: ${fileAttachment?.name}`})
                     </span>
                   </>

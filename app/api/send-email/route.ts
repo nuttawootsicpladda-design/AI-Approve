@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sendEmail } from '@/lib/microsoft-graph'
+import { sendEmail, downloadSharePointFile } from '@/lib/microsoft-graph'
 import { saveRecord } from '@/lib/db'
 import { POItem, SharePointFileInfo } from '@/lib/types'
 import { initializeApproval } from '@/lib/approval-flow'
@@ -107,12 +107,33 @@ export async function POST(request: NextRequest) {
       </div>
     `)
 
+    // Build attachments: fetch SharePoint files server-side (avoid 413 payload too large)
+    let emailAttachments: Array<{ name: string; content: string }> | undefined
+
+    if (sharePointFiles && sharePointFiles.length > 0) {
+      emailAttachments = []
+      for (const spFile of sharePointFiles as SharePointFileInfo[]) {
+        try {
+          const { content } = await downloadSharePointFile(spFile.driveId, spFile.fileId)
+          emailAttachments.push({
+            name: spFile.fileName,
+            content: content.toString('base64'),
+          })
+        } catch (err) {
+          console.error(`Failed to download SharePoint file ${spFile.fileName}:`, err)
+        }
+      }
+    } else if (attachments) {
+      // Local file attachments (sent as base64 from frontend)
+      emailAttachments = attachments
+    }
+
     // Send email to the configured approver
     await sendEmail({
       to: emailTo,
       subject,
       htmlBody: fullHtmlBody,
-      attachments,
+      attachments: emailAttachments,
     })
 
     return NextResponse.json({
