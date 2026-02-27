@@ -7,9 +7,10 @@ import { generateApprovalToken, getApprovalUrl } from '@/lib/approval'
 const CRON_SECRET = process.env.CRON_SECRET
 
 export async function GET(request: NextRequest) {
-  // Verify cron secret
-  const { searchParams } = new URL(request.url)
-  const key = searchParams.get('key') || request.headers.get('x-cron-secret')
+  // Verify cron secret (Vercel sends Authorization: Bearer <CRON_SECRET>)
+  const authHeader = request.headers.get('authorization')
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const key = bearerToken || request.headers.get('x-cron-secret') || new URL(request.url).searchParams.get('key')
 
   if (!CRON_SECRET || key !== CRON_SECRET) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
