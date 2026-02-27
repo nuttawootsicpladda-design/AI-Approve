@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPendingRecordsForReminder, updateRecord } from '@/lib/db'
+import { PORecord } from '@/lib/types'
 import { sendEmail } from '@/lib/microsoft-graph'
 import { generateApprovalToken, getApprovalUrl } from '@/lib/approval'
 
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
     let emailsSent = 0
 
     // Send reminder to each Manager (recipient)
-    for (const [recipientEmail, recipientRecords] of byRecipient) {
+    for (const [recipientEmail, recipientRecords] of Array.from(byRecipient)) {
       try {
         const poListHtml = recipientRecords.map(r => {
           const token = generateApprovalToken(r.id)
@@ -113,9 +114,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Send reminder to each Employee (sender)
-    for (const [senderEmail, senderRecords] of bySender) {
+    for (const [senderEmail, senderRecords] of Array.from(bySender)) {
       try {
-        const poListHtml = senderRecords.map(r => {
+        const poListHtml = senderRecords.map((r: PORecord) => {
           const total = Number(r.total) || 0
           const sentDate = new Date(r.sentAt).toLocaleDateString('th-TH', {
             year: 'numeric', month: 'short', day: 'numeric',
