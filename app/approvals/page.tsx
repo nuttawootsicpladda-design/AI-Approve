@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   Inbox,
+  Paperclip,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,6 +36,12 @@ interface PendingRecord {
   sentAt: string
   createdBy?: string
   items: POItem[]
+  sharePointFiles?: Array<{
+    driveId: string
+    fileId: string
+    fileName: string
+    webUrl?: string
+  }>
   currentApprovalLevel?: number
   maxApprovalLevel?: number
 }
@@ -47,6 +55,7 @@ export default function ApprovalsPage() {
   const [showCommentFor, setShowCommentFor] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [selectedItemsMap, setSelectedItemsMap] = useState<Record<string, boolean[]>>({})
   const [userName, setUserName] = useState('')
   const [userRole, setUserRole] = useState<UserRole>('employee')
 
@@ -84,11 +93,24 @@ export default function ApprovalsPage() {
 
   const handleApprovalAction = async (recordId: string, action: 'approve' | 'reject') => {
     setProcessingId(recordId)
+
+    // Build rejected items from unchecked items
+    const record = pendingRecords.find(r => r.id === recordId)
+    const selected = selectedItemsMap[recordId] || []
+    const rejectedItems = record?.items
+      .map((item, index) => ({ index, name: item.name, poNo: item.poNo, usd: Number(item.usd) }))
+      .filter((_, index) => selected.length > 0 && !selected[index])
+
     try {
       const response = await fetch('/api/dashboard/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordId, action, comment: approvalComment }),
+        body: JSON.stringify({
+          recordId,
+          action,
+          comment: approvalComment,
+          rejectedItems: rejectedItems && rejectedItems.length > 0 ? rejectedItems : undefined,
+        }),
       })
       const result = await response.json()
       if (result.success) {
@@ -138,10 +160,36 @@ export default function ApprovalsPage() {
 
   const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id)
+    if (expandedId !== id) {
+      const record = pendingRecords.find(r => r.id === id)
+      if (record && !selectedItemsMap[id]) {
+        setSelectedItemsMap(prev => ({
+          ...prev,
+          [id]: new Array(record.items.length).fill(true),
+        }))
+      }
+    }
     if (showCommentFor?.id !== id) {
       setShowCommentFor(null)
       setApprovalComment('')
     }
+  }
+
+  const toggleItemForRecord = (recordId: string, index: number) => {
+    setSelectedItemsMap(prev => {
+      const current = prev[recordId] || []
+      const next = [...current]
+      next[index] = !next[index]
+      return { ...prev, [recordId]: next }
+    })
+  }
+
+  const toggleAllForRecord = (recordId: string) => {
+    setSelectedItemsMap(prev => {
+      const current = prev[recordId] || []
+      const allSelected = current.every(Boolean)
+      return { ...prev, [recordId]: new Array(current.length).fill(!allSelected) }
+    })
   }
 
   return (
@@ -296,14 +344,29 @@ export default function ApprovalsPage() {
                   {/* Expanded Content */}
                   {isExpanded && (
                     <div className="border-t bg-muted/20">
-                      {/* Items Table */}
-                      {record.items && record.items.length > 0 && (
+                      {/* Items Table with Checkboxes */}
+                      {record.items && record.items.length > 0 && (() => {
+                        const sel = selectedItemsMap[record.id] || new Array(record.items.length).fill(true)
+                        const approvedTotal = record.items.reduce(
+                          (sum, item, idx) => sum + (sel[idx] ? Number(item.usd) : 0), 0
+                        )
+                        const rejTotal = total - approvedTotal
+                        return (
                         <div className="p-4 pb-0">
-                          <h4 className="text-sm font-semibold mb-2">รายการสินค้า</h4>
+                          <h4 className="text-sm font-semibold mb-1">รายการสินค้า</h4>
+                          <p className="text-xs text-muted-foreground mb-2">เลือก/ยกเลิกรายการที่ต้องการอนุมัติ</p>
                           <div className="overflow-x-auto">
                             <table className="w-full border-collapse text-sm">
                               <thead>
                                 <tr className="bg-icp-primary text-white">
+                                  <th className="border border-icp-primary-dark p-2 text-center w-8">
+                                    <input
+                                      type="checkbox"
+                                      checked={sel.every(Boolean)}
+                                      onChange={() => toggleAllForRecord(record.id)}
+                                      className="rounded"
+                                    />
+                                  </th>
                                   <th className="border border-icp-primary-dark p-2 text-left w-10">No.</th>
                                   <th className="border border-icp-primary-dark p-2 text-left">ชื่อสินค้า</th>
                                   <th className="border border-icp-primary-dark p-2 text-right w-20">จำนวน</th>
@@ -314,7 +377,15 @@ export default function ApprovalsPage() {
                               </thead>
                               <tbody>
                                 {record.items.map((item, idx) => (
-                                  <tr key={idx} className="hover:bg-muted/50">
+                                  <tr key={idx} className={!sel[idx] ? 'bg-red-50 opacity-60 line-through' : 'hover:bg-muted/50'}>
+                                    <td className="border border-border p-2 text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={sel[idx] ?? true}
+                                        onChange={() => toggleItemForRecord(record.id, idx)}
+                                        className="rounded"
+                                      />
+                                    </td>
                                     <td className="border border-border p-2 text-center">{idx + 1}</td>
                                     <td className="border border-border p-2">{item.name}</td>
                                     <td className="border border-border p-2 text-right">
@@ -332,13 +403,53 @@ export default function ApprovalsPage() {
                               </tbody>
                               <tfoot>
                                 <tr className="bg-muted font-bold">
-                                  <td colSpan={5} className="border border-border p-2 text-right">รวม</td>
-                                  <td className="border border-border p-2 text-right">
-                                    {formatCurrency(total)}
+                                  <td colSpan={6} className="border border-border p-2 text-right">รวมที่อนุมัติ</td>
+                                  <td className="border border-border p-2 text-right text-icp-success">
+                                    {formatCurrency(approvedTotal)}
                                   </td>
                                 </tr>
+                                {rejTotal > 0 && (
+                                  <tr className="bg-red-50 font-bold text-icp-danger">
+                                    <td colSpan={6} className="border border-border p-2 text-right">รวมที่ปฏิเสธ</td>
+                                    <td className="border border-border p-2 text-right">
+                                      {formatCurrency(rejTotal)}
+                                    </td>
+                                  </tr>
+                                )}
                               </tfoot>
                             </table>
+                          </div>
+                        </div>
+                        )
+                      })()}
+
+                      {/* Attachments */}
+                      {record.sharePointFiles && record.sharePointFiles.length > 0 && (
+                        <div className="px-4 pb-3">
+                          <h4 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+                            <Paperclip className="h-3.5 w-3.5" />
+                            เอกสารแนบ ({record.sharePointFiles.length} ไฟล์)
+                          </h4>
+                          <div className="space-y-1.5">
+                            {record.sharePointFiles.map((file, index) => (
+                              <div key={index} className="flex items-center justify-between p-2 bg-muted/50 rounded text-sm">
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                                  <span>{file.fileName}</span>
+                                </div>
+                                {file.webUrl && (
+                                  <a
+                                    href={file.webUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-icp-primary hover:underline text-xs flex items-center gap-1"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                    เปิด
+                                  </a>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}

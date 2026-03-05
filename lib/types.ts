@@ -54,12 +54,37 @@ export interface PORecord {
   // Multi-level approval
   currentApprovalLevel?: number
   maxApprovalLevel?: number
+  htmlBody?: string // PO HTML table for reuse in Level 2+ emails
+  // Partial rejection
+  rejectedItems?: RejectedItem[]
+  approvedTotal?: number
+  // PO type
+  poTypeId?: string
+  poTypeName?: string
+  // SharePoint links (manual paths)
+  sharePointLinks?: string[]
 }
 
 // Approval level configuration (admin settings)
+export interface RejectedItem {
+  index: number
+  name: string
+  poNo: string
+  usd: number
+}
+
+export interface POType {
+  id: string
+  name: string
+  description?: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ApprovalLevelConfig {
   id: string
-  level: number          // 1, 2, or 3
+  level: number          // 1-4
   levelName: string
   maxAmount: number | null // มูลค่าสูงสุดที่ level นี้อนุมัติได้ (null = ไม่จำกัด)
   approverEmail: string
@@ -79,6 +104,7 @@ export interface ApprovalStep {
   comment?: string
   actedAt?: string
   createdAt: string
+  rejectedItems?: RejectedItem[]
 }
 
 export interface ExtractResponse {
@@ -90,6 +116,7 @@ export interface ExtractResponse {
 export interface EmailRequest {
   to: string
   cc?: string
+  from?: string // sender email (defaults to EMAIL_SENDER env)
   subject: string
   htmlBody: string
   attachments?: Array<{

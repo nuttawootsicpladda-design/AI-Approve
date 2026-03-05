@@ -68,9 +68,10 @@ export async function sendEmail(request: EmailRequest): Promise<void> {
   }
 
   try {
-    // Send email using sendMail endpoint
+    // Send email using sendMail endpoint (use request.from or fallback to EMAIL_SENDER)
+    const sender = request.from || process.env.EMAIL_SENDER
     await client
-      .api(`/users/${process.env.EMAIL_SENDER}/sendMail`)
+      .api(`/users/${sender}/sendMail`)
       .post({
         message,
         saveToSentItems: true,

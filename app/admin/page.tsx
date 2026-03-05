@@ -9,12 +9,14 @@ import {
   Users,
   Layers,
   Save,
+  Tag,
+  Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { NavBar } from '@/components/NavBar'
-import { User, UserRole, ApprovalLevelConfig } from '@/lib/types'
+import { User, UserRole, ApprovalLevelConfig, POType } from '@/lib/types'
 
 const ROLE_LABELS: Record<UserRole, string> = {
   employee: 'Employee',
@@ -57,6 +59,12 @@ export default function AdminPage() {
   const [levelForms, setLevelForms] = useState<LevelForm[]>([])
   const [savingLevel, setSavingLevel] = useState<number | null>(null)
 
+  // PO types state
+  const [poTypes, setPOTypes] = useState<POType[]>([])
+  const [poTypesLoading, setPOTypesLoading] = useState(true)
+  const [newPoTypeName, setNewPoTypeName] = useState('')
+  const [savingPoType, setSavingPoType] = useState(false)
+
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
@@ -73,6 +81,7 @@ export default function AdminPage() {
     } catch {}
     fetchUsers()
     fetchLevels()
+    fetchPOTypes()
   }, [])
 
   const fetchUsers = async () => {
@@ -99,7 +108,7 @@ export default function AdminPage() {
       if (result.success) {
         setLevels(result.data)
         // Initialize forms from existing data
-        const forms: LevelForm[] = [1, 2, 3].map(level => {
+        const forms: LevelForm[] = [1, 2, 3, 4].map(level => {
           const existing = (result.data as ApprovalLevelConfig[]).find(l => l.level === level)
           return existing
             ? {
@@ -111,7 +120,7 @@ export default function AdminPage() {
               }
             : {
                 level,
-                levelName: level === 1 ? 'Manager' : level === 2 ? 'Director' : 'VP',
+                levelName: level === 1 ? 'Manager' : level === 2 ? 'Director' : level === 3 ? 'VP' : 'CEO',
                 maxAmount: '',
                 approverEmail: '',
                 isActive: false,
@@ -276,6 +285,91 @@ export default function AdminPage() {
     }
   }
 
+  // PO Types functions
+  const fetchPOTypes = async () => {
+    setPOTypesLoading(true)
+    try {
+      const response = await fetch('/api/admin/po-types')
+      const result = await response.json()
+      if (result.success) {
+        setPOTypes(result.data)
+      }
+    } catch {
+      console.error('Failed to fetch PO types')
+    } finally {
+      setPOTypesLoading(false)
+    }
+  }
+
+  const handleAddPoType = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newPoTypeName.trim()) return
+
+    setSavingPoType(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/admin/po-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newPoTypeName.trim(), isActive: true }),
+      })
+      const result = await response.json()
+
+      if (result.success) {
+        setNewPoTypeName('')
+        setSuccess('เพิ่มประเภท PO สำเร็จ')
+        setTimeout(() => setSuccess(null), 3000)
+        fetchPOTypes()
+      } else {
+        setError(result.error)
+      }
+    } catch {
+      setError('Failed to add PO type')
+    } finally {
+      setSavingPoType(false)
+    }
+  }
+
+  const handleTogglePoType = async (poType: POType) => {
+    setError(null)
+    try {
+      const response = await fetch('/api/admin/po-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: poType.id, name: poType.name, isActive: !poType.isActive }),
+      })
+      const result = await response.json()
+
+      if (result.success) {
+        fetchPOTypes()
+      } else {
+        setError(result.error)
+      }
+    } catch {
+      setError('Failed to toggle PO type')
+    }
+  }
+
+  const handleDeletePoType = async (id: string, name: string) => {
+    if (!confirm(`ลบประเภท PO "${name}" ?`)) return
+
+    setError(null)
+    try {
+      const response = await fetch(`/api/admin/po-types?id=${id}`, { method: 'DELETE' })
+      const result = await response.json()
+
+      if (result.success) {
+        setSuccess(`ลบประเภท "${name}" สำเร็จ`)
+        setTimeout(() => setSuccess(null), 3000)
+        fetchPOTypes()
+      } else {
+        setError(result.error)
+      }
+    } catch {
+      setError('Failed to delete PO type')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-icp-primary-light to-icp-primary-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -307,7 +401,7 @@ export default function AdminPage() {
               ตั้งค่าระดับการอนุมัติ (Approval Levels)
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              กำหนดลำดับขั้นการอนุมัติตามมูลค่า PO (สูงสุด 3 ระดับ)
+              กำหนดลำดับขั้นการอนุมัติตามมูลค่า PO (สูงสุด 4 ระดับ)
             </p>
           </CardHeader>
           <CardContent>
@@ -427,11 +521,100 @@ export default function AdminPage() {
                   <ul className="list-disc list-inside space-y-1">
                     <li>PO มูลค่า ≤ Level 1 max → ต้องการอนุมัติแค่ Level 1</li>
                     <li>PO มูลค่า &gt; Level 1 max → ต้องผ่าน Level 1 แล้วส่งต่อ Level 2</li>
-                    <li>PO มูลค่า &gt; Level 2 max → ต้องผ่านทั้ง 3 ระดับ</li>
+                    <li>PO มูลค่า &gt; Level 2 max → ต้องผ่าน Level 1, 2, 3</li>
+                    <li>PO มูลค่า &gt; Level 3 max → ต้องผ่านทั้ง 4 ระดับ</li>
                     <li>Level สุดท้ายควรปล่อยมูลค่าสูงสุดว่าง (ไม่จำกัด)</li>
                     <li>เปิด Active เฉพาะ Level ที่ต้องการใช้งาน</li>
                   </ul>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* PO Types Config */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Tag className="h-5 w-5 text-icp-cyan" />
+              ประเภท PO (PO Types)
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              กำหนดหมวดหมู่ PO เพื่อจัดประเภทเอกสาร
+            </p>
+          </CardHeader>
+          <CardContent>
+            {poTypesLoading ? (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Add new PO type */}
+                <form onSubmit={handleAddPoType} className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <label className="text-xs font-medium text-muted-foreground block mb-1">
+                      ชื่อประเภท PO
+                    </label>
+                    <Input
+                      value={newPoTypeName}
+                      onChange={(e) => setNewPoTypeName(e.target.value)}
+                      placeholder="เช่น วัตถุดิบ, อุปกรณ์, บริการ"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" disabled={savingPoType} className="bg-icp-primary hover:bg-icp-primary-dark">
+                    {savingPoType ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-1" />
+                        เพิ่ม
+                      </>
+                    )}
+                  </Button>
+                </form>
+
+                {/* List of PO types */}
+                {poTypes.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-4 text-sm">ยังไม่มีประเภท PO</p>
+                ) : (
+                  <div className="space-y-2">
+                    {poTypes.map((pt) => (
+                      <div
+                        key={pt.id}
+                        className={`flex items-center justify-between p-3 rounded-lg border ${
+                          pt.isActive
+                            ? 'border-icp-primary-200 bg-icp-primary-light/50'
+                            : 'border-gray-200 bg-gray-50/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={pt.isActive}
+                              onChange={() => handleTogglePoType(pt)}
+                              className="rounded"
+                            />
+                            Active
+                          </label>
+                          <span className={`font-medium ${pt.isActive ? '' : 'text-muted-foreground line-through'}`}>
+                            {pt.name}
+                          </span>
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={() => handleDeletePoType(pt.id, pt.name)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

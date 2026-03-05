@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
       approvedAt: record.approvedAt,
       rejectedAt: record.rejectedAt,
       approvalComment: record.approvalComment,
+      sharePointFiles: record.sharePointFiles || [],
       currentApprovalLevel: record.currentApprovalLevel || 1,
       maxApprovalLevel: record.maxApprovalLevel || 1,
       currentLevel: level,
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { token, action, comment } = body
+    const { token, action, comment, rejectedItems } = body
 
     if (!token || !action) {
       return NextResponse.json(
@@ -111,6 +112,7 @@ export async function POST(request: NextRequest) {
         stepId: step.id,
         action,
         comment,
+        rejectedItems,
       })
 
       if (!result.success) {

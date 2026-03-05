@@ -52,7 +52,7 @@ export default function Home() {
 
   // SharePoint file info for moving files on approval
   const [sharePointFiles, setSharePointFiles] = useState<SharePointFileInfo[]>([])
-  const [approvedFolderPath, setApprovedFolderPath] = useState('Approved')
+  const [approvedFolderPath] = useState('Approved')
 
   // User info from Microsoft login
   const [userName, setUserName] = useState('')
@@ -72,6 +72,22 @@ export default function Home() {
         setUserRole(info.role || 'employee')
       }
     } catch {}
+  }, [])
+
+  // PO type
+  const [poTypes, setPOTypes] = useState<Array<{ id: string; name: string }>>([])
+  const [selectedPoTypeId, setSelectedPoTypeId] = useState('')
+  const [selectedPoTypeName, setSelectedPoTypeName] = useState('')
+
+  useEffect(() => {
+    fetch('/api/po-types')
+      .then(r => r.json())
+      .then(result => {
+        if (result.success) {
+          setPOTypes(result.data)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Email settings
@@ -306,8 +322,10 @@ export default function Home() {
         // SharePoint file info — server will fetch files directly (no base64 in payload)
         sharePointFiles: sharePointFiles.length > 0 && attachToEmail ? sharePointFiles : undefined,
         approvedFolderPath: sharePointFiles.length > 0 ? approvedFolderPath : undefined,
-        senderEmail: 'procurement.noreply@icpladda.com',
+        senderEmail: userEmail,
         createdBy: userEmail,
+        poTypeId: selectedPoTypeId || undefined,
+        poTypeName: selectedPoTypeName || undefined,
       }
 
       const response = await fetch('/api/send-email', {
@@ -468,6 +486,7 @@ export default function Home() {
                 </CardContent>
               </Card>
             )}
+
           </div>
         )}
 
@@ -512,6 +531,29 @@ export default function Home() {
                 table: t.table,
               }}
             />
+
+            {/* PO Type */}
+            {poTypes.length > 0 && (
+              <Card>
+                <CardContent className="p-4">
+                  <label className="text-sm font-medium block mb-1">ประเภท PO</label>
+                  <select
+                    value={selectedPoTypeId}
+                    onChange={(e) => {
+                      setSelectedPoTypeId(e.target.value)
+                      const found = poTypes.find(t => t.id === e.target.value)
+                      setSelectedPoTypeName(found?.name || '')
+                    }}
+                    className="w-full h-10 px-3 border rounded-md text-sm"
+                  >
+                    <option value="">-- เลือกประเภท (ไม่บังคับ) --</option>
+                    {poTypes.map(pt => (
+                      <option key={pt.id} value={pt.id}>{pt.name}</option>
+                    ))}
+                  </select>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Attachment Option */}
             {(fileAttachment || sharePointFiles.length > 0) && (

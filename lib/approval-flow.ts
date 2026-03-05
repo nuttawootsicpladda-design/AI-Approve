@@ -8,7 +8,7 @@ import {
   getRecordById,
 } from './db'
 import { sendEmail, moveMultipleSharePointFiles } from './microsoft-graph'
-import { ApprovalLevelConfig } from './types'
+import { ApprovalLevelConfig, RejectedItem } from './types'
 import {
   wrapEmailLayout,
   emailHeader,
@@ -112,6 +112,7 @@ export async function processApprovalAction(params: {
   stepId: string
   action: 'approve' | 'reject'
   comment?: string
+  rejectedItems?: RejectedItem[]
 }): Promise<{
   success: boolean
   isFinalized: boolean
@@ -136,6 +137,7 @@ export async function processApprovalAction(params: {
     status: action === 'approve' ? 'approved' : 'rejected',
     comment,
     actedAt: now,
+    rejectedItems: params.rejectedItems,
   })
 
   if (!updatedStep) {
@@ -145,6 +147,22 @@ export async function processApprovalAction(params: {
   if (action === 'reject') {
     await handleRejection(poRecordId, updatedStep.level, comment)
     return { success: true, isFinalized: true }
+  }
+
+  // If there are partially rejected items, aggregate and update PO record
+  if (params.rejectedItems && params.rejectedItems.length > 0) {
+    const allSteps = await getApprovalStepsForPO(poRecordId)
+    const allRejected: RejectedItem[] = []
+    for (const s of allSteps) {
+      if (s.rejectedItems) allRejected.push(...s.rejectedItems)
+    }
+    const rejectedTotal = allRejected.reduce((sum, ri) => sum + Number(ri.usd), 0)
+    const approvedTotal = Number(record.total) - rejectedTotal
+
+    await updateRecord(poRecordId, {
+      rejectedItems: allRejected,
+      approvedTotal: approvedTotal,
+    })
   }
 
   // Approved — check if more levels needed
@@ -226,18 +244,22 @@ async function routeToNextLevel(
   })
 
   try {
+    // Use stored PO HTML body (same as Level 1 email) or fallback to info table
+    const poContentHtml = record.htmlBody
+      ? record.htmlBody
+      : `<p>เรียน ผู้อนุมัติ Level ${nextLevel} (${nextConfig.levelName}),</p>
+         <p>PO <strong>${record.fileName}</strong> ผ่านการอนุมัติ Level ${nextLevel - 1} แล้ว กรุณาพิจารณาอนุมัติ</p>
+         ${infoTable([
+           { label: 'ไฟล์', value: record.fileName },
+           { label: 'ยอดรวม', value: emailCurrency(Number(record.total)) },
+           { label: 'ผู้ส่ง', value: record.createdBy || record.sentFrom },
+         ])}`
+
     const nextLevelHtml = wrapEmailLayout(`
-      ${emailHeader(`PO Approval — Level ${nextLevel}/${maxLevel}`, 'primary')}
-      ${emailBody(`
-        <p>เรียน ผู้อนุมัติ Level ${nextLevel} (${nextConfig.levelName}),</p>
-        <p>PO <strong>${record.fileName}</strong> ผ่านการอนุมัติ Level ${nextLevel - 1} แล้ว กรุณาพิจารณาอนุมัติ</p>
-        ${infoTable([
-          { label: 'ไฟล์', value: record.fileName },
-          { label: 'ยอดรวม', value: emailCurrency(Number(record.total)) },
-          { label: 'ผู้ส่ง', value: record.createdBy || record.sentFrom },
-        ])}
+      <div style="padding:28px 32px; color:#14181F; font-size:14px; line-height:1.7;">
+        ${poContentHtml}
         ${approvalButtonsHtml}
-      `)}
+      </div>
     `)
 
     await sendEmail({

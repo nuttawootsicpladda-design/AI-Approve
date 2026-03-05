@@ -17,12 +17,16 @@ import {
   Clock,
   Layers,
   ClipboardList,
+  Trash2,
+  X,
+  Link2,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { NavBar } from '@/components/NavBar'
 import { formatCurrency } from '@/lib/utils'
-import { UserRole, ApprovalStatus } from '@/lib/types'
+import { UserRole, ApprovalStatus, POItem } from '@/lib/types'
 
 interface StatusTrackingItem {
   id: string
@@ -37,6 +41,8 @@ interface StatusTrackingItem {
   approvedAt: string | null
   rejectedAt: string | null
   approvalComment: string | null
+  items: POItem[]
+  sharePointLinks: string[]
 }
 
 interface DashboardData {
@@ -140,6 +146,55 @@ function LevelProgress({ current, max, status }: { current: number; max: number;
   )
 }
 
+// Large level progress for detail panel
+function LevelProgressLarge({ current, max, status }: { current: number; max: number; status: ApprovalStatus }) {
+  if (max <= 1) return null
+  return (
+    <div className="p-3 bg-icp-primary-light rounded-md">
+      <div className="flex items-center gap-2 mb-2">
+        <Layers className="h-4 w-4 text-icp-primary" />
+        <span className="text-sm font-medium text-icp-primary">
+          Multi-Level Approval ({max} Levels)
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        {Array.from({ length: max }, (_, i) => {
+          const level = i + 1
+          const isLevelApproved = status === 'approved' ? true : level < current
+          const isPending = !isLevelApproved && level === current && status === 'pending'
+          const isRejected = status === 'rejected' && level === current
+
+          let bgColor = 'bg-gray-200 text-gray-500'
+          if (isLevelApproved && (status === 'approved' || level < current)) {
+            bgColor = 'bg-icp-success text-white'
+          } else if (isPending) {
+            bgColor = 'bg-icp-warning text-white'
+          } else if (isRejected) {
+            bgColor = 'bg-icp-danger text-white'
+          }
+
+          return (
+            <div key={level} className="flex items-center gap-1">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${bgColor}`}>
+                {isLevelApproved && (status === 'approved' || level < current) ? (
+                  <CheckCircle className="h-4 w-4" />
+                ) : isRejected ? (
+                  <XCircle className="h-4 w-4" />
+                ) : isPending ? (
+                  <Clock className="h-3.5 w-3.5" />
+                ) : (
+                  level
+                )}
+              </div>
+              {level < max && <span className="text-gray-400 text-xs">&rarr;</span>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [data, setData] = useState<DashboardData | null>(null)
@@ -152,6 +207,7 @@ export default function DashboardPage() {
   const [userName, setUserName] = useState('')
   const [userRole, setUserRole] = useState<UserRole>('employee')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [selectedItem, setSelectedItem] = useState<StatusTrackingItem | null>(null)
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -184,6 +240,23 @@ export default function DashboardPage() {
         setPendingCount(result.data.length)
       }
     } catch {}
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('คุณต้องการลบรายการนี้หรือไม่?')) return
+
+    try {
+      const response = await fetch(`/api/history?id=${id}`, { method: 'DELETE' })
+      const result = await response.json()
+      if (result.success) {
+        if (selectedItem?.id === id) setSelectedItem(null)
+        fetchDashboard()
+      } else {
+        alert('ลบไม่สำเร็จ: ' + result.error)
+      }
+    } catch {
+      alert('เกิดข้อผิดพลาดในการลบ')
+    }
   }
 
   useEffect(() => {
@@ -460,18 +533,27 @@ export default function DashboardPage() {
                         <th className="text-center p-3 font-medium text-muted-foreground text-sm">สถานะ</th>
                         <th className="text-center p-3 font-medium text-muted-foreground text-sm">Level</th>
                         <th className="text-right p-3 font-medium text-muted-foreground text-sm">วันที่ส่ง</th>
+                        <th className="text-center p-3 font-medium text-muted-foreground text-sm w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredTracking.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="text-center p-8 text-muted-foreground">
+                          <td colSpan={8} className="text-center p-8 text-muted-foreground">
                             ไม่มีข้อมูล
                           </td>
                         </tr>
                       ) : (
                         filteredTracking.map((item) => (
-                          <tr key={item.id} className="border-b hover:bg-muted/30 transition-colors">
+                          <tr
+                            key={item.id}
+                            className={`border-b cursor-pointer transition-colors ${
+                              selectedItem?.id === item.id
+                                ? 'bg-icp-primary/5 hover:bg-icp-primary/10'
+                                : 'hover:bg-muted/30'
+                            }`}
+                            onClick={() => setSelectedItem(selectedItem?.id === item.id ? null : item)}
+                          >
                             <td className="p-3">
                               <div className="flex items-center gap-2">
                                 <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -518,6 +600,19 @@ export default function DashboardPage() {
                                 minute: '2-digit',
                               })}
                             </td>
+                            <td className="p-3 text-center">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDelete(item.id)
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </Button>
+                            </td>
                           </tr>
                         ))
                       )}
@@ -526,6 +621,190 @@ export default function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Detail Panel - shows when a row is selected */}
+            {selectedItem && (
+              <Card className="border-2 border-icp-primary/20">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5" />
+                      รายละเอียด PO
+                    </CardTitle>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => setSelectedItem(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    {/* Info Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <p className="text-muted-foreground mb-1">ชื่อไฟล์</p>
+                        <p className="font-medium">{selectedItem.fileName}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground mb-1">ส่งถึง</p>
+                        <p className="font-medium">{selectedItem.sentTo}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground mb-1">วันที่ส่ง</p>
+                        <p className="font-medium">
+                          {new Date(selectedItem.sentAt).toLocaleDateString('th-TH', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground mb-1">ยอดรวม</p>
+                        <p className="font-bold text-lg text-icp-success">
+                          {formatCurrency(selectedItem.total)}
+                        </p>
+                      </div>
+                      {selectedItem.createdBy && selectedItem.createdBy !== '-' && (
+                        <div>
+                          <p className="text-muted-foreground mb-1">สร้างโดย</p>
+                          <p className="font-medium">{selectedItem.createdBy}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Approval Status */}
+                    <div className="p-4 bg-muted rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold">สถานะการอนุมัติ</span>
+                        <StatusBadge
+                          status={selectedItem.approvalStatus}
+                          currentLevel={selectedItem.currentApprovalLevel}
+                          maxLevel={selectedItem.maxApprovalLevel}
+                        />
+                      </div>
+
+                      {selectedItem.maxApprovalLevel > 1 && (
+                        <LevelProgressLarge
+                          current={selectedItem.currentApprovalLevel}
+                          max={selectedItem.maxApprovalLevel}
+                          status={selectedItem.approvalStatus}
+                        />
+                      )}
+
+                      {selectedItem.approvedAt && (
+                        <p className="text-sm text-muted-foreground mt-2">
+                          อนุมัติเมื่อ: {new Date(selectedItem.approvedAt).toLocaleDateString('th-TH', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      )}
+                      {selectedItem.rejectedAt && (
+                        <p className="text-sm text-muted-foreground mt-2">
+                          ปฏิเสธเมื่อ: {new Date(selectedItem.rejectedAt).toLocaleDateString('th-TH', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      )}
+                      {selectedItem.approvalComment && (
+                        <p className="text-sm mt-2">
+                          <span className="font-medium">หมายเหตุ:</span> {selectedItem.approvalComment}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Items Table */}
+                    {selectedItem.items && selectedItem.items.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold mb-3">รายการสินค้า</h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse text-sm">
+                            <thead>
+                              <tr className="bg-icp-primary text-white">
+                                <th className="border border-icp-primary-dark p-2 text-left">No.</th>
+                                <th className="border border-icp-primary-dark p-2 text-left">ชื่อรายการ</th>
+                                <th className="border border-icp-primary-dark p-2 text-right">จำนวน</th>
+                                <th className="border border-icp-primary-dark p-2 text-right">ราคา</th>
+                                <th className="border border-icp-primary-dark p-2 text-left">P/O No.</th>
+                                <th className="border border-icp-primary-dark p-2 text-right">รวม</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedItem.items.map((item, index) => (
+                                <tr key={index}>
+                                  <td className="border border-border p-2 text-center">{index + 1}</td>
+                                  <td className="border border-border p-2">{item.name}</td>
+                                  <td className="border border-border p-2 text-right">
+                                    {Number(item.quantity).toLocaleString()}
+                                  </td>
+                                  <td className="border border-border p-2 text-right">
+                                    {formatCurrency(Number(item.cost))}
+                                  </td>
+                                  <td className="border border-border p-2">{item.poNo}</td>
+                                  <td className="border border-border p-2 text-right font-semibold">
+                                    {formatCurrency(Number(item.usd))}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-muted font-bold">
+                                <td colSpan={5} className="border border-border p-2 text-right">
+                                  รวมทั้งหมด
+                                </td>
+                                <td className="border border-border p-2 text-right">
+                                  {formatCurrency(selectedItem.total)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SharePoint Links */}
+                    {selectedItem.sharePointLinks && selectedItem.sharePointLinks.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold mb-3 flex items-center gap-2">
+                          <Link2 className="h-4 w-4" />
+                          SharePoint Files
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {selectedItem.sharePointLinks.map((link, index) => (
+                            <a
+                              key={index}
+                              href={link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 p-2.5 bg-muted/50 rounded-lg hover:bg-icp-primary/5 transition-colors text-sm group"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-icp-primary flex-shrink-0" />
+                              <span className="truncate text-icp-primary underline underline-offset-2">
+                                {link}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Charts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

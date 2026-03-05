@@ -13,6 +13,8 @@ import {
   FileText,
   Clock,
   ArrowRight,
+  Paperclip,
+  ExternalLink,
 } from 'lucide-react'
 import { POItem } from '@/lib/types'
 
@@ -38,6 +40,12 @@ interface ApprovalData {
   approvalComment?: string
   currentApprovalLevel: number
   maxApprovalLevel: number
+  sharePointFiles?: Array<{
+    driveId: string
+    fileId: string
+    fileName: string
+    webUrl?: string
+  }>
   currentLevel: number
   stepStatus: string
   steps: ApprovalStep[]
@@ -54,6 +62,7 @@ function ApproveContent() {
   const [data, setData] = useState<ApprovalData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [comment, setComment] = useState('')
+  const [selectedItems, setSelectedItems] = useState<boolean[]>([])
   const [selectedAction, setSelectedAction] = useState<'approve' | 'reject' | null>(
     actionParam === 'approve' || actionParam === 'reject' ? actionParam : null
   )
@@ -81,6 +90,7 @@ function ApproveContent() {
         }
 
         setData(result.data)
+        setSelectedItems(new Array(result.data.items.length).fill(true))
 
         // Check if this specific step is already processed
         if (result.data.stepStatus !== 'pending') {
@@ -99,10 +109,28 @@ function ApproveContent() {
     fetchData()
   }, [token])
 
+  const toggleItem = (index: number) => {
+    setSelectedItems(prev => {
+      const next = [...prev]
+      next[index] = !next[index]
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    const allSelected = selectedItems.every(Boolean)
+    setSelectedItems(new Array(selectedItems.length).fill(!allSelected))
+  }
+
   // Handle approval/rejection
   const handleAction = async (action: 'approve' | 'reject') => {
     setSelectedAction(action)
     setIsProcessing(true)
+
+    // Build rejected items array from unchecked items
+    const rejectedItems = data?.items
+      .map((item, index) => ({ index, name: item.name, poNo: item.poNo, usd: Number(item.usd) }))
+      .filter((_, index) => !selectedItems[index])
 
     try {
       const response = await fetch('/api/approval', {
@@ -112,6 +140,7 @@ function ApproveContent() {
           token,
           action,
           comment: comment.trim() || undefined,
+          rejectedItems: rejectedItems && rejectedItems.length > 0 ? rejectedItems : undefined,
         }),
       })
 
@@ -308,6 +337,10 @@ function ApproveContent() {
   // Ready state - show approval form
   if (status === 'ready' && data) {
     const total = data.items.reduce((sum, item) => sum + Number(item.usd), 0)
+    const approvedTotal = data.items.reduce(
+      (sum, item, idx) => sum + (selectedItems[idx] ? Number(item.usd) : 0), 0
+    )
+    const rejectedTotal = total - approvedTotal
     const isMultiLevel = data.maxApprovalLevel > 1
     const isLastLevel = data.currentLevel >= data.maxApprovalLevel
     const approveButtonText = isMultiLevel
@@ -372,9 +405,18 @@ function ApproveContent() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
+                <p className="text-xs text-muted-foreground mb-2">เลือก/ยกเลิกรายการที่ต้องการอนุมัติ (ยกเลิก = ปฏิเสธรายการนั้น)</p>
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="bg-icp-primary text-white">
+                      <th className="border border-icp-primary-dark p-2 text-center w-10">
+                        <input
+                          type="checkbox"
+                          checked={selectedItems.length > 0 && selectedItems.every(Boolean)}
+                          onChange={toggleAll}
+                          className="rounded"
+                        />
+                      </th>
                       <th className="border border-icp-primary-dark p-2 text-left">ลำดับ</th>
                       <th className="border border-icp-primary-dark p-2 text-left">ชื่อสินค้า</th>
                       <th className="border border-icp-primary-dark p-2 text-right">จำนวน</th>
@@ -385,7 +427,15 @@ function ApproveContent() {
                   </thead>
                   <tbody>
                     {data.items.map((item, index) => (
-                      <tr key={index}>
+                      <tr key={index} className={!selectedItems[index] ? 'bg-red-50 opacity-60 line-through' : ''}>
+                        <td className="border p-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedItems[index] ?? true}
+                            onChange={() => toggleItem(index)}
+                            className="rounded"
+                          />
+                        </td>
                         <td className="border p-2 text-center">{index + 1}</td>
                         <td className="border p-2">{item.name}</td>
                         <td className="border p-2 text-right">
@@ -405,20 +455,67 @@ function ApproveContent() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-muted font-bold">
-                      <td colSpan={5} className="border p-2 text-right">
-                        รวมทั้งหมด
+                      <td colSpan={6} className="border p-2 text-right">
+                        รวมที่อนุมัติ
                       </td>
-                      <td className="border p-2 text-right">
-                        ${total.toLocaleString(undefined, {
+                      <td className="border p-2 text-right text-icp-success">
+                        ${approvedTotal.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                         })}
                       </td>
                     </tr>
+                    {rejectedTotal > 0 && (
+                      <tr className="bg-red-50 font-bold text-icp-danger">
+                        <td colSpan={6} className="border p-2 text-right">
+                          รวมที่ปฏิเสธ
+                        </td>
+                        <td className="border p-2 text-right">
+                          ${rejectedTotal.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                          })}
+                        </td>
+                      </tr>
+                    )}
                   </tfoot>
                 </table>
               </div>
             </CardContent>
           </Card>
+
+          {/* Attachments */}
+          {data.sharePointFiles && data.sharePointFiles.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Paperclip className="h-5 w-5 text-icp-primary" />
+                  เอกสารแนบ ({data.sharePointFiles.length} ไฟล์)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {data.sharePointFiles.map((file, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">{file.fileName}</span>
+                      </div>
+                      {file.webUrl && (
+                        <a
+                          href={file.webUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-icp-primary hover:underline flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          เปิดไฟล์
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Comment */}
           <Card>

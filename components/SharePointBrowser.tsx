@@ -12,6 +12,9 @@ import {
   CheckSquare,
   Square,
   MinusSquare,
+  Link2,
+  Plus,
+  Minus,
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
@@ -27,6 +30,9 @@ export interface SharePointFile {
   file?: {
     mimeType: string
   }
+  // Track which drive this file belongs to (for multi-source)
+  _driveId?: string
+  _sourceIndex?: number
 }
 
 interface SharePointFolder {
@@ -51,35 +57,71 @@ interface SharePointBrowserProps {
   }
 }
 
-const SHAREPOINT_URL_KEY = 'po-approval-sharepoint-url'
+const SHAREPOINT_URLS_KEY = 'po-approval-sharepoint-urls'
+const NUM_URL_SLOTS = 6
+
+interface ConnectedSource {
+  url: string
+  driveId: string
+  folderPath?: string
+  files: SharePointFile[]
+  folders: SharePointFolder[]
+}
 
 export function SharePointBrowser({
   onFileSelect,
   isProcessing = false,
   translations,
 }: SharePointBrowserProps) {
-  const [siteUrl, setSiteUrl] = useState('')
-  const [driveId, setDriveId] = useState<string | null>(null)
+  const [siteUrls, setSiteUrls] = useState<string[]>(Array(NUM_URL_SLOTS).fill(''))
+  const [connectedSources, setConnectedSources] = useState<ConnectedSource[]>([])
+  const [isConnected, setIsConnected] = useState(false)
 
-  // Load saved SharePoint URL from localStorage on mount
+  // Load saved SharePoint URLs from localStorage on mount
   useEffect(() => {
-    const savedUrl = localStorage.getItem(SHAREPOINT_URL_KEY)
-    if (savedUrl) {
-      setSiteUrl(savedUrl)
-    }
+    try {
+      const saved = localStorage.getItem(SHAREPOINT_URLS_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) {
+          const urls = Array(NUM_URL_SLOTS).fill('')
+          parsed.forEach((url: string, i: number) => {
+            if (i < NUM_URL_SLOTS) urls[i] = url || ''
+          })
+          setSiteUrls(urls)
+        }
+      }
+    } catch {}
   }, [])
+
   const [isConnecting, setIsConnecting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [files, setFiles] = useState<SharePointFile[]>([])
-  const [folders, setFolders] = useState<SharePointFolder[]>([])
-  const [currentPath, setCurrentPath] = useState<string[]>([])
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+
+  // Browsing state (for navigating within a single source)
+  const [browsingSourceIndex, setBrowsingSourceIndex] = useState<number | null>(null)
+  const [currentPath, setCurrentPath] = useState<string[]>([])
+  const [browseFiles, setBrowseFiles] = useState<SharePointFile[]>([])
+  const [browseFolders, setBrowseFolders] = useState<SharePointFolder[]>([])
+
+  // All files from all connected sources (flat view)
+  const allFiles = useMemo(() => {
+    if (browsingSourceIndex !== null) return browseFiles
+    return connectedSources.flatMap((src, idx) =>
+      src.files.map(f => ({ ...f, _driveId: src.driveId, _sourceIndex: idx }))
+    )
+  }, [connectedSources, browsingSourceIndex, browseFiles])
+
+  const allFolders = useMemo(() => {
+    if (browsingSourceIndex !== null) return browseFolders
+    return connectedSources.flatMap(src => src.folders)
+  }, [connectedSources, browsingSourceIndex, browseFolders])
 
   // Get supported files only
   const supportedFiles = useMemo(() => {
-    return files.filter((file) => isSupportedFile(file.name))
-  }, [files])
+    return allFiles.filter((file) => isSupportedFile(file.name))
+  }, [allFiles])
 
   // Check if all supported files are selected
   const allSelected = useMemo(() => {
@@ -91,10 +133,14 @@ export function SharePointBrowser({
     return supportedFiles.some((f) => selectedFiles.has(f.id)) && !allSelected
   }, [supportedFiles, selectedFiles, allSelected])
 
-  // Connect to SharePoint site
+  const nonEmptyUrls = useMemo(() => {
+    return siteUrls.filter(u => u.trim() !== '')
+  }, [siteUrls])
+
+  // Connect to all SharePoint URLs
   const handleConnect = async () => {
-    if (!siteUrl.trim()) {
-      setError('Please enter a SharePoint site URL')
+    if (nonEmptyUrls.length === 0) {
+      setError('กรุณากรอก SharePoint URL อย่างน้อย 1 ช่อง')
       return
     }
 
@@ -102,28 +148,71 @@ export function SharePointBrowser({
     setError(null)
 
     try {
-      const response = await fetch(
-        `/api/sharepoint?action=get-drive&siteUrl=${encodeURIComponent(siteUrl)}`
-      )
-      const result = await response.json()
+      const sources: ConnectedSource[] = []
+      const errors: string[] = []
 
-      if (!result.success) {
-        throw new Error(result.error)
+      for (let i = 0; i < siteUrls.length; i++) {
+        const url = siteUrls[i].trim()
+        if (!url) continue
+
+        try {
+          // Get drive
+          const response = await fetch(
+            `/api/sharepoint?action=get-drive&siteUrl=${encodeURIComponent(url)}`
+          )
+          const result = await response.json()
+
+          if (!result.success) {
+            errors.push(`Path ${i + 1}: ${result.error}`)
+            continue
+          }
+
+          const driveId = result.data.driveId
+          const folderPath = result.data.initialFolderPath || undefined
+
+          // Load files from this path
+          let filesUrl = `/api/sharepoint?action=list-files&driveId=${encodeURIComponent(driveId)}`
+          if (folderPath) {
+            filesUrl += `&folderPath=${encodeURIComponent(folderPath)}`
+          }
+
+          const filesResponse = await fetch(filesUrl)
+          const filesResult = await filesResponse.json()
+
+          if (!filesResult.success) {
+            errors.push(`Path ${i + 1}: ${filesResult.error}`)
+            continue
+          }
+
+          sources.push({
+            url,
+            driveId,
+            folderPath,
+            files: (filesResult.data.files || []).map((f: SharePointFile) => ({
+              ...f,
+              _driveId: driveId,
+              _sourceIndex: i,
+            })),
+            folders: filesResult.data.folders || [],
+          })
+        } catch (err: any) {
+          errors.push(`Path ${i + 1}: ${err.message}`)
+        }
       }
 
-      setDriveId(result.data.driveId)
+      if (sources.length === 0) {
+        throw new Error(errors.join('\n'))
+      }
 
-      // Save URL to localStorage for next time
-      localStorage.setItem(SHAREPOINT_URL_KEY, siteUrl)
+      setConnectedSources(sources)
+      setIsConnected(true)
+      setBrowsingSourceIndex(null)
 
-      // If URL contained a folder path, navigate to it
-      if (result.data.initialFolderPath) {
-        const pathParts = result.data.initialFolderPath.split('/').filter(Boolean)
-        setCurrentPath(pathParts)
-        await loadFiles(result.data.driveId, result.data.initialFolderPath)
-      } else {
-        setCurrentPath([])
-        await loadFiles(result.data.driveId)
+      // Save URLs to localStorage
+      localStorage.setItem(SHAREPOINT_URLS_KEY, JSON.stringify(siteUrls))
+
+      if (errors.length > 0) {
+        setError(`เชื่อมต่อสำเร็จ ${sources.length}/${nonEmptyUrls.length} paths\n${errors.join('\n')}`)
       }
     } catch (err: any) {
       setError(err.message || 'Failed to connect to SharePoint')
@@ -132,14 +221,14 @@ export function SharePointBrowser({
     }
   }
 
-  // Load files from current folder
-  const loadFiles = useCallback(async (drive: string, path?: string) => {
+  // Load files for browsing within a single source
+  const loadFiles = useCallback(async (driveId: string, path?: string, sourceIdx?: number) => {
     setIsLoading(true)
     setError(null)
-    setSelectedFiles(new Set()) // Clear selection when navigating
+    setSelectedFiles(new Set())
 
     try {
-      let url = `/api/sharepoint?action=list-files&driveId=${encodeURIComponent(drive)}`
+      let url = `/api/sharepoint?action=list-files&driveId=${encodeURIComponent(driveId)}`
       if (path) {
         url += `&folderPath=${encodeURIComponent(path)}`
       }
@@ -151,8 +240,13 @@ export function SharePointBrowser({
         throw new Error(result.error)
       }
 
-      setFiles(result.data.files)
-      setFolders(result.data.folders)
+      const files = (result.data.files || []).map((f: SharePointFile) => ({
+        ...f,
+        _driveId: driveId,
+        _sourceIndex: sourceIdx,
+      }))
+      setBrowseFiles(files)
+      setBrowseFolders(result.data.folders || [])
     } catch (err: any) {
       setError(err.message || 'Failed to load files')
     } finally {
@@ -160,36 +254,54 @@ export function SharePointBrowser({
     }
   }, [])
 
-  // Navigate to folder
+  // Navigate to folder (within browsing mode)
   const handleFolderClick = async (folder: SharePointFolder) => {
-    const newPath = [...currentPath, folder.name]
-    setCurrentPath(newPath)
-    if (driveId) {
-      await loadFiles(driveId, newPath.join('/'))
+    if (browsingSourceIndex !== null) {
+      const src = connectedSources[browsingSourceIndex]
+      const newPath = [...currentPath, folder.name]
+      setCurrentPath(newPath)
+      await loadFiles(src.driveId, newPath.join('/'), browsingSourceIndex)
     }
   }
 
-  // Go back to parent folder
+  // Enter browsing mode for a specific source
+  const handleBrowseSource = async (sourceIndex: number) => {
+    const src = connectedSources[sourceIndex]
+    setBrowsingSourceIndex(sourceIndex)
+    const initialPath = src.folderPath ? src.folderPath.split('/').filter(Boolean) : []
+    setCurrentPath(initialPath)
+    setBrowseFiles(src.files)
+    setBrowseFolders(src.folders)
+  }
+
+  // Go back in browsing mode
   const handleBack = async () => {
-    const newPath = currentPath.slice(0, -1)
-    setCurrentPath(newPath)
-    if (driveId) {
-      await loadFiles(driveId, newPath.length > 0 ? newPath.join('/') : undefined)
+    if (browsingSourceIndex !== null) {
+      const src = connectedSources[browsingSourceIndex]
+      if (currentPath.length > 0) {
+        const newPath = currentPath.slice(0, -1)
+        setCurrentPath(newPath)
+        await loadFiles(src.driveId, newPath.length > 0 ? newPath.join('/') : undefined, browsingSourceIndex)
+      } else {
+        // Exit browsing mode - go back to combined view
+        setBrowsingSourceIndex(null)
+        setCurrentPath([])
+      }
     }
   }
 
-  // Go to root
-  const handleGoHome = async () => {
+  // Go back to combined view
+  const handleGoHome = () => {
+    setBrowsingSourceIndex(null)
     setCurrentPath([])
-    if (driveId) {
-      await loadFiles(driveId)
-    }
+    setSelectedFiles(new Set())
   }
 
-  // Refresh current folder
+  // Refresh
   const handleRefresh = async () => {
-    if (driveId) {
-      await loadFiles(driveId, currentPath.length > 0 ? currentPath.join('/') : undefined)
+    if (browsingSourceIndex !== null) {
+      const src = connectedSources[browsingSourceIndex]
+      await loadFiles(src.driveId, currentPath.length > 0 ? currentPath.join('/') : undefined, browsingSourceIndex)
     }
   }
 
@@ -209,19 +321,20 @@ export function SharePointBrowser({
   // Toggle select all
   const handleSelectAll = () => {
     if (allSelected) {
-      // Deselect all
       setSelectedFiles(new Set())
     } else {
-      // Select all supported files
       setSelectedFiles(new Set(supportedFiles.map((f) => f.id)))
     }
   }
 
-  // Confirm file selection
+  // Confirm file selection - group by driveId
   const handleSelectFiles = () => {
-    if (selectedFiles.size > 0 && driveId) {
-      const selected = files.filter((f) => selectedFiles.has(f.id))
-      onFileSelect(selected, driveId)
+    if (selectedFiles.size > 0) {
+      const selected = allFiles.filter((f) => selectedFiles.has(f.id))
+
+      // Use the driveId from the first file or first source
+      const primaryDriveId = selected[0]?._driveId || connectedSources[0]?.driveId || ''
+      onFileSelect(selected, primaryDriveId)
     }
   }
 
@@ -256,6 +369,22 @@ export function SharePointBrowser({
     )
   }
 
+  // Get source label from URL
+  function getSourceLabel(url: string) {
+    try {
+      const parts = url.split('/')
+      const sitesIdx = parts.findIndex(p => p === 'sites')
+      if (sitesIdx >= 0 && parts[sitesIdx + 1]) {
+        return decodeURIComponent(parts[sitesIdx + 1])
+      }
+      // Try to get last meaningful path segment
+      const meaningfulParts = parts.filter(p => p && p !== 'https:' && p !== '' && !p.includes('sharepoint.com'))
+      return decodeURIComponent(meaningfulParts[meaningfulParts.length - 1] || url)
+    } catch {
+      return url
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -265,30 +394,38 @@ export function SharePointBrowser({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Connection Form */}
-        {!driveId && (
-          <div className="space-y-3">
-            <div>
-              <label className="text-sm font-medium mb-1 block">
-                {translations.siteUrl}
-              </label>
-              <Input
-                placeholder="https://company.sharepoint.com/sites/YourSite"
-                value={siteUrl}
-                onChange={(e) => setSiteUrl(e.target.value)}
-                disabled={isConnecting}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Example: https://icpladda.sharepoint.com/sites/WelfareClaims
-              </p>
-              <p className="text-xs text-muted-foreground">
-                You can also paste a SharePoint folder link - it will automatically navigate to
-                that folder.
-              </p>
+        {/* Connection Form - 6 URL inputs */}
+        {!isConnected && (
+          <div className="space-y-4">
+            <div className="space-y-3">
+              {siteUrls.map((url, index) => (
+                <div key={index}>
+                  <label className="text-sm font-medium mb-1 block flex items-center gap-2">
+                    <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    {translations.siteUrl} {index + 1}
+                  </label>
+                  <Input
+                    placeholder="https://company.sharepoint.com/sites/YourSite/..."
+                    value={url}
+                    onChange={(e) => {
+                      const updated = [...siteUrls]
+                      updated[index] = e.target.value
+                      setSiteUrls(updated)
+                    }}
+                    disabled={isConnecting}
+                  />
+                </div>
+              ))}
             </div>
+            <p className="text-xs text-muted-foreground">
+              Example: https://icpladda.sharepoint.com/sites/WelfareClaims
+            </p>
+            <p className="text-xs text-muted-foreground">
+              You can also paste a SharePoint folder link - it will automatically navigate to that folder.
+            </p>
             <Button
               onClick={handleConnect}
-              disabled={isConnecting || !siteUrl.trim()}
+              disabled={isConnecting || nonEmptyUrls.length === 0}
               className="w-full"
             >
               {isConnecting ? (
@@ -297,40 +434,71 @@ export function SharePointBrowser({
                   {translations.loading}
                 </>
               ) : (
-                translations.connect
+                <>
+                  {translations.connect} ({nonEmptyUrls.length} path{nonEmptyUrls.length > 1 ? 's' : ''})
+                </>
               )}
             </Button>
           </div>
         )}
 
         {/* File Browser */}
-        {driveId && (
+        {isConnected && (
           <>
+            {/* Source Tabs */}
+            {connectedSources.length > 1 && browsingSourceIndex === null && (
+              <div className="flex flex-wrap gap-2 pb-2 border-b">
+                <div className="text-xs text-muted-foreground font-medium py-1">
+                  {connectedSources.length} sources connected:
+                </div>
+                {connectedSources.map((src, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleBrowseSource(idx)}
+                    className="text-xs px-2.5 py-1 rounded-full bg-icp-primary/10 text-icp-primary hover:bg-icp-primary/20 transition-colors"
+                  >
+                    {getSourceLabel(src.url)} ({src.files.length} files)
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Toolbar */}
             <div className="flex items-center gap-2 pb-2 border-b">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleGoHome}
-                disabled={isLoading || currentPath.length === 0}
+                disabled={isLoading || browsingSourceIndex === null}
+                title="Back to all sources"
               >
                 <Home className="h-4 w-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleBack}
-                disabled={isLoading || currentPath.length === 0}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                {translations.back}
-              </Button>
+              {browsingSourceIndex !== null && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleBack}
+                  disabled={isLoading}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  {translations.back}
+                </Button>
+              )}
               <div className="flex-1 text-sm text-muted-foreground truncate">
-                /{currentPath.join('/')}
+                {browsingSourceIndex !== null ? (
+                  <>
+                    Source {browsingSourceIndex + 1}: /{currentPath.join('/')}
+                  </>
+                ) : (
+                  `ไฟล์ทั้งหมดจาก ${connectedSources.length} sources (${allFiles.length} files)`
+                )}
               </div>
-              <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isLoading}>
-                <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-              </Button>
+              {browsingSourceIndex !== null && (
+                <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isLoading}>
+                  <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
+                </Button>
+              )}
             </div>
 
             {/* Select All Header */}
@@ -368,14 +536,14 @@ export function SharePointBrowser({
                 <div className="flex items-center justify-center p-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : folders.length === 0 && files.length === 0 ? (
+              ) : allFolders.length === 0 && allFiles.length === 0 ? (
                 <div className="text-center text-muted-foreground p-8">
                   {translations.noFiles}
                 </div>
               ) : (
                 <div className="divide-y">
-                  {/* Folders */}
-                  {folders.map((folder) => (
+                  {/* Folders (only in browsing mode) */}
+                  {browsingSourceIndex !== null && allFolders.map((folder) => (
                     <div
                       key={folder.id}
                       className="flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer"
@@ -391,13 +559,13 @@ export function SharePointBrowser({
                   ))}
 
                   {/* Files */}
-                  {files.map((file) => {
+                  {allFiles.map((file) => {
                     const isSupported = isSupportedFile(file.name)
                     const isSelected = selectedFiles.has(file.id)
 
                     return (
                       <div
-                        key={file.id}
+                        key={`${file._sourceIndex}-${file.id}`}
                         className={cn(
                           'flex items-center gap-3 p-3 transition-colors',
                           isSupported ? 'hover:bg-muted/50 cursor-pointer' : 'opacity-50',
@@ -432,6 +600,11 @@ export function SharePointBrowser({
                           <div className="truncate text-sm">{file.name}</div>
                           <div className="text-xs text-muted-foreground">
                             {formatSize(file.size)} - {formatDate(file.lastModifiedDateTime)}
+                            {browsingSourceIndex === null && connectedSources.length > 1 && file._sourceIndex !== undefined && (
+                              <span className="ml-2 text-icp-primary">
+                                [Source {file._sourceIndex + 1}]
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -449,7 +622,7 @@ export function SharePointBrowser({
                     {selectedFiles.size} file{selectedFiles.size > 1 ? 's' : ''} selected
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {files
+                    {allFiles
                       .filter((f) => selectedFiles.has(f.id))
                       .map((f) => f.name)
                       .join(', ')}
@@ -473,22 +646,24 @@ export function SharePointBrowser({
               variant="outline"
               size="sm"
               onClick={() => {
-                setDriveId(null)
-                setFiles([])
-                setFolders([])
+                setIsConnected(false)
+                setConnectedSources([])
+                setBrowsingSourceIndex(null)
                 setCurrentPath([])
+                setBrowseFiles([])
+                setBrowseFolders([])
                 setSelectedFiles(new Set())
               }}
               className="w-full"
             >
-              Change SharePoint Site
+              Change SharePoint Sites
             </Button>
           </>
         )}
 
         {/* Error Message */}
         {error && (
-          <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
+          <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md whitespace-pre-line">
             {error}
           </div>
         )}

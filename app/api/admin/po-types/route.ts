@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  getApprovalLevelConfigs,
-  upsertApprovalLevelConfig,
-  deleteApprovalLevelConfig,
-} from '@/lib/db'
+import { getPOTypes, upsertPOType, deletePOType } from '@/lib/db'
 
 function getCallerRole(request: NextRequest): string | null {
   const userInfo = request.cookies.get('user-info')
@@ -16,7 +12,6 @@ function getCallerRole(request: NextRequest): string | null {
   }
 }
 
-// GET: List all approval level configs
 export async function GET(request: NextRequest) {
   const role = getCallerRole(request)
   if (role !== 'admin') {
@@ -24,17 +19,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const configs = await getApprovalLevelConfigs()
-    return NextResponse.json({ success: true, data: configs })
+    const types = await getPOTypes()
+    return NextResponse.json({ success: true, data: types })
   } catch (error: any) {
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to fetch approval levels' },
+      { success: false, error: error.message || 'Failed to fetch PO types' },
       { status: 500 }
     )
   }
 }
 
-// POST: Create or update an approval level config
 export async function POST(request: NextRequest) {
   const role = getCallerRole(request)
   if (role !== 'admin') {
@@ -43,40 +37,31 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { level, levelName, maxAmount, approverEmail, isActive } = body
+    const { id, name, description, isActive } = body
 
-    if (!level || !levelName || !approverEmail) {
+    if (!name?.trim()) {
       return NextResponse.json(
-        { success: false, error: 'level, levelName, and approverEmail are required' },
+        { success: false, error: 'Name is required' },
         { status: 400 }
       )
     }
 
-    if (level < 1 || level > 4) {
-      return NextResponse.json(
-        { success: false, error: 'Level must be between 1 and 4' },
-        { status: 400 }
-      )
-    }
-
-    const config = await upsertApprovalLevelConfig({
-      level,
-      levelName,
-      maxAmount: maxAmount !== undefined && maxAmount !== null && maxAmount !== '' ? Number(maxAmount) : null,
-      approverEmail,
+    const result = await upsertPOType({
+      id,
+      name: name.trim(),
+      description,
       isActive: isActive !== false,
     })
 
-    return NextResponse.json({ success: true, data: config })
+    return NextResponse.json({ success: true, data: result })
   } catch (error: any) {
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to save approval level' },
+      { success: false, error: error.message || 'Failed to save PO type' },
       { status: 500 }
     )
   }
 }
 
-// DELETE: Remove an approval level config
 export async function DELETE(request: NextRequest) {
   const role = getCallerRole(request)
   if (role !== 'admin') {
@@ -94,11 +79,11 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    await deleteApprovalLevelConfig(id)
+    await deletePOType(id)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to delete approval level' },
+      { success: false, error: error.message || 'Failed to delete PO type' },
       { status: 500 }
     )
   }

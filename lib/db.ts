@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { PORecord, User, UserRole, ApprovalLevelConfig, ApprovalStep, ApprovalStatus } from './types'
+import { PORecord, User, UserRole, ApprovalLevelConfig, ApprovalStep, ApprovalStatus, POType, RejectedItem } from './types'
 
 // Helper: map Supabase row to PORecord
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,6 +25,11 @@ function mapRecord(record: any): PORecord {
     lastReminderSent: record.last_reminder_sent,
     currentApprovalLevel: record.current_approval_level,
     maxApprovalLevel: record.max_approval_level,
+    htmlBody: record.html_body,
+    rejectedItems: record.rejected_items,
+    approvedTotal: record.approved_total !== null && record.approved_total !== undefined ? Number(record.approved_total) : undefined,
+    poTypeId: record.po_type_id,
+    poTypeName: record.po_type_name,
   }
 }
 
@@ -79,6 +84,11 @@ export async function saveRecord(record: Omit<PORecord, 'id'>): Promise<PORecord
       created_by: record.createdBy?.toLowerCase(),
       current_approval_level: record.currentApprovalLevel || 1,
       max_approval_level: record.maxApprovalLevel || 1,
+      html_body: record.htmlBody,
+      rejected_items: record.rejectedItems,
+      approved_total: record.approvedTotal,
+      po_type_id: record.poTypeId,
+      po_type_name: record.poTypeName,
     })
     .select()
     .single()
@@ -145,6 +155,11 @@ export async function updateRecord(id: string, updates: Partial<PORecord>): Prom
   if (updates.lastReminderSent !== undefined) supabaseUpdates.last_reminder_sent = updates.lastReminderSent
   if (updates.currentApprovalLevel !== undefined) supabaseUpdates.current_approval_level = updates.currentApprovalLevel
   if (updates.maxApprovalLevel !== undefined) supabaseUpdates.max_approval_level = updates.maxApprovalLevel
+  if (updates.htmlBody !== undefined) supabaseUpdates.html_body = updates.htmlBody
+  if (updates.rejectedItems !== undefined) supabaseUpdates.rejected_items = updates.rejectedItems
+  if (updates.approvedTotal !== undefined) supabaseUpdates.approved_total = updates.approvedTotal
+  if (updates.poTypeId !== undefined) supabaseUpdates.po_type_id = updates.poTypeId
+  if (updates.poTypeName !== undefined) supabaseUpdates.po_type_name = updates.poTypeName
 
   const { data, error } = await supabase
     .from('po_records')
@@ -405,6 +420,7 @@ function mapApprovalStep(row: any): ApprovalStep {
     comment: row.comment,
     actedAt: row.acted_at,
     createdAt: row.created_at,
+    rejectedItems: row.rejected_items,
   }
 }
 
@@ -462,14 +478,20 @@ export async function updateApprovalStep(id: string, updates: {
   status: ApprovalStatus
   comment?: string
   actedAt: string
+  rejectedItems?: RejectedItem[]
 }): Promise<ApprovalStep | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const payload: any = {
+    status: updates.status,
+    comment: updates.comment || null,
+    acted_at: updates.actedAt,
+  }
+  if (updates.rejectedItems !== undefined) {
+    payload.rejected_items = updates.rejectedItems
+  }
   const { data, error } = await supabase
     .from('approval_steps')
-    .update({
-      status: updates.status,
-      comment: updates.comment || null,
-      acted_at: updates.actedAt,
-    })
+    .update(payload)
     .eq('id', id)
     .select()
     .single()
@@ -500,4 +522,84 @@ export async function getPendingStepsForApprover(
     ...mapApprovalStep(row),
     poRecord: mapRecord(row.po_records),
   }))
+}
+
+// ===============================
+// PO Types (Admin)
+// ===============================
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPOType(row: any): POType {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export async function getPOTypes(): Promise<POType[]> {
+  const { data, error } = await supabase
+    .from('po_types')
+    .select('*')
+    .order('name', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching PO types:', error)
+    return []
+  }
+  return (data || []).map(mapPOType)
+}
+
+export async function getActivePOTypes(): Promise<POType[]> {
+  const { data, error } = await supabase
+    .from('po_types')
+    .select('*')
+    .eq('is_active', true)
+    .order('name', { ascending: true })
+
+  if (error) {
+    console.error('Error fetching active PO types:', error)
+    return []
+  }
+  return (data || []).map(mapPOType)
+}
+
+export async function upsertPOType(poType: {
+  id?: string
+  name: string
+  description?: string
+  isActive: boolean
+}): Promise<POType | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const payload: any = {
+    name: poType.name,
+    description: poType.description || null,
+    is_active: poType.isActive,
+    updated_at: new Date().toISOString(),
+  }
+  if (poType.id) payload.id = poType.id
+
+  const { data, error } = await supabase
+    .from('po_types')
+    .upsert(payload, { onConflict: 'id' })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Error upserting PO type:', error)
+    return null
+  }
+  return mapPOType(data)
+}
+
+export async function deletePOType(id: string): Promise<boolean> {
+  const { error } = await supabase.from('po_types').delete().eq('id', id)
+  if (error) {
+    console.error('Error deleting PO type:', error)
+    return false
+  }
+  return true
 }

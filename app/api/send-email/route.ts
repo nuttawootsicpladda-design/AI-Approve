@@ -23,6 +23,9 @@ export async function POST(request: NextRequest) {
       approvedFolderPath,
       senderEmail,
       createdBy,
+      poTypeId,
+      poTypeName,
+      sharePointLinks,
     } = body
 
     if (!subject || !htmlBody) {
@@ -66,6 +69,10 @@ export async function POST(request: NextRequest) {
       sharePointFiles: sharePointFiles as SharePointFileInfo[] | undefined,
       approvedFolderPath,
       createdBy: createdBy || senderEmail || '',
+      htmlBody: htmlBody,
+      poTypeId: poTypeId || undefined,
+      poTypeName: poTypeName || undefined,
+      sharePointLinks: sharePointLinks && sharePointLinks.length > 0 ? sharePointLinks : undefined,
     })
     console.log('Record saved successfully:', record.id)
 
@@ -128,9 +135,10 @@ export async function POST(request: NextRequest) {
       emailAttachments = attachments
     }
 
-    // Send email to the configured approver
+    // Send email to the configured approver (from the logged-in user's email)
     await sendEmail({
       to: emailTo,
+      from: senderEmail || undefined,
       subject,
       htmlBody: fullHtmlBody,
       attachments: emailAttachments,

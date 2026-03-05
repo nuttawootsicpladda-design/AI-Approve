@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { recordId, action, comment } = await request.json()
+    const { recordId, action, comment, rejectedItems } = await request.json()
 
     if (!recordId || !action) {
       return NextResponse.json(
@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
         stepId: pendingStep.id,
         action,
         comment,
+        rejectedItems,
       })
 
       if (!result.success) {

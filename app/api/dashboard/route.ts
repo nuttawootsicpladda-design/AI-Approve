@@ -1,9 +1,23 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getAllRecords } from '@/lib/db'
 
-export async function GET() {
+function getUserFromCookies(request: NextRequest): { email: string; role: string } | null {
+  const userInfo = request.cookies.get('user-info')
+  if (!userInfo) return null
   try {
-    const records = await getAllRecords()
+    const parsed = JSON.parse(decodeURIComponent(userInfo.value))
+    return { email: parsed.email || '', role: parsed.role || 'employee' }
+  } catch {
+    return null
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    // Role-based filtering: employee sees only own records
+    const user = getUserFromCookies(request)
+    const isFullAccess = user && (user.role === 'manager' || user.role === 'admin')
+    const records = await getAllRecords(isFullAccess ? undefined : user?.email)
     console.log('Dashboard: Total records fetched:', records.length)
 
     // Calculate stats
@@ -59,9 +73,8 @@ export async function GET() {
         sentAt: r.sentAt,
       }))
 
-    // Status tracking - all POs with approval status
+    // Status tracking - all POs with approval status and items
     const statusTracking = records
-      .slice(0, 20)
       .map(r => ({
         id: r.id,
         fileName: r.fileName,
@@ -75,6 +88,8 @@ export async function GET() {
         approvedAt: r.approvedAt || null,
         rejectedAt: r.rejectedAt || null,
         approvalComment: r.approvalComment || null,
+        items: r.items || [],
+        sharePointLinks: r.sharePointLinks || [],
       }))
 
     // This month stats
